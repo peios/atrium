@@ -27,20 +27,24 @@ use libauthd::{LOGON_SOCKET_PATH, Secret};
 use peios::token::Token;
 
 use crate::log;
+use crate::spawn;
 
 /// How long to wait on the authority for any one reply.
 const AUTHORITY_TIMEOUT: Duration = Duration::from_secs(30);
 
-/// A logged-on principal whose token atriumd holds.
+/// A logged-on principal with a session host running as them.
 ///
-/// Today this is where a session stops: the token is kept and nothing runs
-/// under it. When peinit's jobs API lands, `Granted` is where atriumd asks
-/// peinit to start `atrium-session` as this principal.
-#[allow(dead_code)] // held, not yet read: the spawn step is what reads them
+/// The token is held for the session's life: it is what a future
+/// re-spawn, an elevation, or peinit's jobs API (which replaces the spawn
+/// here) needs, and closing it is what ends the logon session once the
+/// host is gone.
+#[allow(dead_code)]
 pub struct Session {
     pub token: Token,
     pub username: String,
     pub profile: wire::Profile,
+    pub pid: libc::pid_t,
+    pub pidfd: OwnedFd,
 }
 
 struct Conversation {
@@ -52,6 +56,10 @@ struct Conversation {
 pub struct Logon {
     conversations: HashMap<u64, Conversation>,
     pub sessions: HashMap<u64, Session>,
+    /// Set alongside a `Granted` reply: the descriptor that rides with it.
+    pub pending_fd: Option<OwnedFd>,
+    /// `--unrestricted`: spawn session hosts without installing a token.
+    pub unrestricted: bool,
 }
 
 /// Which denials leave the page usable for another try (the same rule as
@@ -61,6 +69,10 @@ fn retryable(d: Denial) -> bool {
 }
 
 impl Logon {
+    pub fn new(unrestricted: bool) -> Self {
+        Logon { unrestricted, ..Default::default() }
+    }
+
     pub fn start(&mut self, conv: u64, username: String, remote: String) -> Reply {
         if self.conversations.contains_key(&conv) {
             return Reply::Error { conv, reason: "conversation already open".into() };
@@ -128,11 +140,24 @@ impl Logon {
     }
 
     pub fn logout(&mut self, session: u64) -> Reply {
-        match self.sessions.remove(&session) {
-            Some(s) => log::info(format_args!("session {session} ({}) logged out", s.username)),
+        // The host is signalled; the entry (and the token) go when the
+        // main loop reaps it, so the logon session outlives the process by
+        // exactly as long as it takes to die.
+        match self.sessions.get(&session) {
+            Some(s) => {
+                log::info(format_args!("session {session} ({}) logged out; terminating pid {}", s.username, s.pid));
+                spawn::terminate(s.pid);
+            }
             None => log::warn(format_args!("logout of unknown session {session}")),
         }
         Reply::Ok
+    }
+
+    /// A session host has exited: forget it and release its token.
+    pub fn ended(&mut self, session: u64, how: &str) {
+        if let Some(s) = self.sessions.remove(&session) {
+            log::info(format_args!("session {session} ({}) ended: {how}", s.username));
+        }
     }
 
     /// Read the authority's next message for `conv` and turn it into a reply.
@@ -191,10 +216,21 @@ impl Logon {
                     return Reply::Denied { conv, retryable: false, reason: "the authority sent no token".into() };
                 };
                 let session = granted.session_id;
-                log::info(format_args!(
-                    "session {session} established for {} (spawn of atrium-session pending peinit jobs API)",
-                    c.username
-                ));
+                let token = Token::from(descriptor);
+                log::info(format_args!("session {session} established for {}", c.username));
+                let spawned = match spawn::spawn_session(
+                    session,
+                    if self.unrestricted { None } else { Some(&token) },
+                    &c.username,
+                    &granted.profile,
+                ) {
+                    Ok(s) => s,
+                    Err(e) => {
+                        log::error(format_args!("could not start a session host for {}: {e}", c.username));
+                        // The token drops here, which ends the logon session.
+                        return Reply::Error { conv, reason: "could not start a session".into() };
+                    }
+                };
                 let display_name = if granted.profile.display_name.is_empty() {
                     c.username.clone()
                 } else {
@@ -202,8 +238,9 @@ impl Logon {
                 };
                 self.sessions.insert(
                     session,
-                    Session { token: Token::from(descriptor), username: c.username.clone(), profile: granted.profile },
+                    Session { token, username: c.username.clone(), profile: granted.profile, pid: spawned.pid, pidfd: spawned.pidfd },
                 );
+                self.pending_fd = Some(spawned.server_end);
                 Reply::Granted { conv, session, username: c.username, display_name }
             }
             MSG_ACCESS_DENIED => {

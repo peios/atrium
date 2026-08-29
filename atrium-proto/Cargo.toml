@@ -1,11 +1,12 @@
 [package]
 name = "atrium-proto"
-description = "The atriumd <-> atrium-server control protocol."
+description = "The control protocols between atriumd, atrium-server and session hosts."
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 publish.workspace = true
 
 [dependencies]
+libc = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

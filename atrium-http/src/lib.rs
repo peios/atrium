@@ -2,14 +2,14 @@
 //!
 //! One request per connection (`Connection: close`), a bounded head, a
 //! bounded body. This is not a general server and is not trying to be; it is
-//! the door the login page and the API sit behind until Atrium has a real
-//! one, and everything above it is written against `Request`/`Response`
-//! so the door can be swapped.
+//! the door the login page, the API and the session hosts sit behind until
+//! Atrium has a real one, and everything above it is written against
+//! `Request`/`Response` so the door can be swapped. Generic over the stream
+//! because atrium-server reads TCP and a session host reads a Unix socket
+//! the server forwarded.
 
 use std::collections::HashMap;
 use std::io::{Read, Write};
-use std::net::TcpStream;
-use std::time::Duration;
 
 const MAX_HEAD_BYTES: usize = 16 * 1024;
 const MAX_BODY_BYTES: usize = 64 * 1024;
@@ -20,6 +20,37 @@ pub struct Request {
     /// Header names lowercased.
     pub headers: HashMap<String, String>,
     pub body: Vec<u8>,
+    /// The request line and headers exactly as received, up to and
+    /// including the blank line — what a forwarder replays.
+    pub raw_head: Vec<u8>,
+}
+
+impl Request {
+    /// The head again, with `drop` headers removed and `add` lines appended.
+    /// For a forwarder that must not pass the bearer through and wants to
+    /// say who the browser is.
+    pub fn rewritten_head(&self, drop: &[&str], add: &[String]) -> Vec<u8> {
+        let head = String::from_utf8_lossy(&self.raw_head);
+        let mut out = String::new();
+        let mut lines = head.trim_end_matches("\r\n").split("\r\n");
+        if let Some(rl) = lines.next() {
+            out.push_str(rl);
+            out.push_str("\r\n");
+        }
+        for line in lines {
+            let name = line.split(':').next().unwrap_or("").trim().to_ascii_lowercase();
+            if !drop.iter().any(|d| *d == name) {
+                out.push_str(line);
+                out.push_str("\r\n");
+            }
+        }
+        for a in add {
+            out.push_str(a);
+            out.push_str("\r\n");
+        }
+        out.push_str("\r\n");
+        out.into_bytes()
+    }
 }
 
 impl Request {
@@ -60,9 +91,7 @@ impl Response {
     }
 }
 
-pub fn read_request(stream: &mut TcpStream) -> Option<Request> {
-    let _ = stream.set_read_timeout(Some(Duration::from_secs(10)));
-    let _ = stream.set_write_timeout(Some(Duration::from_secs(10)));
+pub fn read_request<S: Read>(stream: &mut S) -> Option<Request> {
     let mut buf = Vec::with_capacity(2048);
     let mut chunk = [0u8; 2048];
     let head_end = loop {
@@ -100,10 +129,10 @@ pub fn read_request(stream: &mut TcpStream) -> Option<Request> {
         }
     }
     body.truncate(length);
-    Some(Request { method, path, headers, body })
+    Some(Request { method, path, headers, body, raw_head: buf[..head_end].to_vec() })
 }
 
-pub fn write_response(stream: &mut TcpStream, r: &Response) {
+pub fn write_response<S: Write>(stream: &mut S, r: &Response) {
     let mut head = format!(
         "HTTP/1.1 {} {}\r\nContent-Type: {}\r\nContent-Length: {}\r\nConnection: close\r\nCache-Control: no-store\r\n",
         r.status,

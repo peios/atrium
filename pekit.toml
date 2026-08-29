@@ -1,6 +1,6 @@
-# atrium — the Peios web session host: atriumd (SYSTEM) and atrium-server
-# (unprivileged, spawned by atriumd). One cargo workspace, one package; see
-# packages.pekit/.
+# atrium — the Peios web session host: atriumd (SYSTEM), atrium-server
+# (unprivileged, spawned by atriumd) and atrium-session (one per logon, as
+# the user). One cargo workspace, one package; see packages.pekit/.
 #
 # The libpeios bootstrap mirrors netd's and resolvd's: pkg-config rather than
 # PEIOS_LIB_DIR, and a synthesized peios.pc from the sibling trees when
@@ -50,12 +50,13 @@ fi
 
 export BINDGEN_EXTRA_CLANG_ARGS="-isystem $(gcc -print-file-name=include) ${BINDGEN_EXTRA_CLANG_ARGS:-}"
 
-cargo build --release --locked --bin atriumd --bin atrium-server --target-dir "$PEKIT_OUT/target"
+cargo build --release --locked --bin atriumd --bin atrium-server --bin atrium-session --target-dir "$PEKIT_OUT/target"
 
 mkdir -p "$PEKIT_OUT/usr/sbin" "$PEKIT_OUT/usr/libexec/atrium"
 install -m 0755 "$PEKIT_OUT/target/release/atriumd" "$PEKIT_OUT/usr/sbin/atriumd"
 # Machine-facing, spawned by atriumd only: libexec, not on PATH.
 install -m 0755 "$PEKIT_OUT/target/release/atrium-server" "$PEKIT_OUT/usr/libexec/atrium/atrium-server"
+install -m 0755 "$PEKIT_OUT/target/release/atrium-session" "$PEKIT_OUT/usr/libexec/atrium/atrium-session"
 
 # Seeds are offered, not applied: an image opts in with [registry] autoapply.
 mkdir -p "$PEKIT_OUT/usr/share/regim"

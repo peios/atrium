@@ -9,9 +9,9 @@
 //!     every privilege deleted, joined to us by one socketpair;
 //!   * on the server's behalf, hold logon conversations with the authority
 //!     (PGSS Logon) and keep the resulting tokens in a session table;
-//!   * eventually, ask peinit to start one `atrium-session` per logon as that
-//!     principal. That step waits on peinit's jobs API; today a session is a
-//!     held token and a log line.
+//!   * start one `atrium-session` per logon as that principal, and hand the
+//!     server the socket to reach it. Spawning is a stopgap for peinit's
+//!     jobs API (see spawn.rs); holding the table is not.
 //!
 //! It never parses HTTP and never impersonates. If a feature seems to need
 //! adding here, it belongs in the server or the session host.
@@ -21,10 +21,11 @@ mod logon;
 mod spawn;
 
 use std::io::ErrorKind;
+use std::os::fd::{AsFd, AsRawFd};
 use std::os::unix::net::UnixDatagram;
 use std::process::ExitCode;
 
-use atrium_proto::{Reply, Request, read_frame, write_frame};
+use atrium_proto::{Reply, Request, read_frame, write_frame_fd};
 
 fn notify_ready() {
     let Ok(path) = std::env::var("NOTIFY_SOCKET") else { return };
@@ -43,10 +44,10 @@ fn main() -> ExitCode {
     // a development switch and the log says so every time.
     let unrestricted = std::env::args().any(|a| a == "--unrestricted");
     if unrestricted {
-        log::warn(format_args!("--unrestricted: atrium-server runs with this process's own token"));
+        log::warn(format_args!("--unrestricted: children run with this process's own token"));
     }
 
-    let mut server = match spawn::spawn(unrestricted) {
+    let server = match spawn::spawn_server(unrestricted) {
         Ok(s) => s,
         Err(e) => {
             log::error(format_args!("could not start atrium-server: {e}"));
@@ -55,14 +56,49 @@ fn main() -> ExitCode {
     };
     notify_ready();
 
-    let mut logon = logon::Logon::default();
+    let mut logon = logon::Logon::new(unrestricted);
     loop {
-        let request: Request = match read_frame(&mut server.control) {
+        // One poll over the server's control socket and every session's
+        // pidfd. Frames are small and the server writes them whole, so a
+        // readable control socket is followed by a blocking frame read.
+        let mut fds: Vec<libc::pollfd> = Vec::with_capacity(1 + logon.sessions.len());
+        fds.push(libc::pollfd { fd: server.control.as_raw_fd(), events: libc::POLLIN, revents: 0 });
+        let mut order: Vec<u64> = Vec::with_capacity(logon.sessions.len());
+        for (id, s) in &logon.sessions {
+            fds.push(libc::pollfd { fd: s.pidfd.as_raw_fd(), events: libc::POLLIN, revents: 0 });
+            order.push(*id);
+        }
+        // SAFETY: poll over fds we own, for their lifetime.
+        let rc = unsafe { libc::poll(fds.as_mut_ptr(), fds.len() as libc::nfds_t, -1) };
+        if rc < 0 {
+            let e = std::io::Error::last_os_error();
+            if e.kind() == ErrorKind::Interrupted {
+                continue;
+            }
+            log::error(format_args!("poll: {e}"));
+            return ExitCode::FAILURE;
+        }
+
+        // Dead sessions first, so a Logout for one is not answered after
+        // its reap.
+        for (i, id) in order.iter().enumerate() {
+            if fds[i + 1].revents != 0 {
+                let pid = logon.sessions[id].pid;
+                let how = spawn::reap(pid);
+                logon.ended(*id, &how);
+            }
+        }
+
+        if fds[0].revents == 0 {
+            continue;
+        }
+        let request: Request = match read_frame(&mut &server.control) {
             Ok(r) => r,
             Err(e) if e.kind() == ErrorKind::UnexpectedEof => {
-                // The server is gone; so is every cookie it held. Exit and
-                // let peinit restart the pair — sessions do not survive this
-                // today, by decision.
+                // The server is gone; so is every cookie it held, and every
+                // session host will follow (its control socket just closed).
+                // Exit and let peinit restart the pair — sessions do not
+                // survive this today, by decision.
                 log::error(format_args!("atrium-server exited: {}", spawn::reap(server.pid)));
                 return ExitCode::FAILURE;
             }
@@ -80,7 +116,8 @@ fn main() -> ExitCode {
         if let Reply::Error { reason, .. } = &reply {
             log::warn(format_args!("logon step failed: {reason}"));
         }
-        if let Err(e) = write_frame(&mut server.control, &reply) {
+        let fd = logon.pending_fd.take();
+        if let Err(e) = write_frame_fd(&server.control, &reply, fd.as_ref().map(|f| f.as_fd())) {
             log::error(format_args!("control socket: {e}"));
             return ExitCode::FAILURE;
         }

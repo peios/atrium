@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["atrium-proto", "atriumd", "atrium-server"]
+members = ["atrium-proto", "atrium-http", "atriumd", "atrium-server", "atrium-session"]
 
 # atrium is its own workspace root, like netd, resolvd and authd.
 #
@@ -11,11 +11,16 @@ members = ["atrium-proto", "atriumd", "atrium-server"]
 #                   with authd, holds the session table, and spawns the
 #                   unprivileged server (and, once peinit's jobs API lands,
 #                   asks peinit to spawn per-user session hosts).
+#   atrium-http     the least HTTP/1.1 the server and session hosts need.
 #   atrium-server   the network-facing half, spawned by atriumd with a
-#                   privilege-stripped token. HTTP, the login page, cookies.
+#                   privilege-stripped token. HTTP, the login page, cookies,
+#                   and forwarding to session hosts.
+#   atrium-session  one per logon, running as the user. Everything the user
+#                   sees after login. Spawned by atriumd for now; by peinit's
+#                   jobs API once that exists.
 
 [workspace.package]
-version = "0.0.2"
+version = "0.0.3"
 edition = "2024"
 license = "MIT"
 publish = false
