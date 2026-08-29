@@ -1,0 +1,12 @@
+# atriumd — the Peios web session host.
+#
+# Runtime library dependencies (glibc) are derived from the binary's
+# DT_NEEDED entries.
+
+[package]
+description = "Peios web session host - the browser-delivered session, on port 8080"
+
+[files]
+":usr/sbin/atriumd" = "usr/sbin/atriumd"
+# The service definition. Inert until an image names it in [registry] autoapply.
+":usr/share/regim/atriumd-service.reg" = "usr/share/regim/atriumd-service.reg"

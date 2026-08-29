@@ -1,0 +1,11 @@
+# Base metadata for the packages carved from the atrium build tree.
+#
+#   atriumd    the web session host. Runs as LocalService for now; serves
+#              the browser-delivered session on port 8080.
+
+format = "peipkg"
+
+[package]
+version      = "{{version}}-1"
+architecture = "x86_64"
+license      = "MIT"

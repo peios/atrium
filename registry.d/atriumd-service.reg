@@ -1,0 +1,38 @@
+{
+  "_comment": [
+    "The atriumd service definition: what peinit starts, and how.",
+    "",
+    "Identity is LocalService for now: this slice binds 8080, which is an",
+    "unreserved port and so anyone's once port-reservations.reg applies, and",
+    "does nothing else. It will move to SYSTEM when it starts originating",
+    "logons (logon.sock admits SYSTEM alone, and installing another",
+    "principal's token needs SeTcbPrivilege) -- recorded here so that move is",
+    "a known step rather than a surprise.",
+    "",
+    "Readiness is Notify (0): atriumd sends READY=1 once its listener is",
+    "bound.",
+    "",
+    "RestartPolicy is Always (2): a machine whose session host is down has",
+    "no way for its users to reach it, and a restart costs nothing yet.",
+    "",
+    "Shipped by the atriumd package into /usr/share/regim/; inert until an",
+    "image names it in [registry] autoapply."
+  ],
+  "keys": [
+    { "path": "Machine\\System" },
+    { "path": "Machine\\System\\Services" },
+    {
+      "path": "Machine\\System\\Services\\atriumd",
+      "values": [
+        { "name": "ImagePath", "type": "sz", "data": "/usr/sbin/atriumd" },
+        { "name": "Triggers", "type": "multi", "data": ["boot"] },
+        { "name": "Identity", "type": "sz", "data": "LocalService" },
+        { "name": "Readiness", "type": "dword", "data": 0 },
+        { "name": "RestartPolicy", "type": "dword", "data": 2 },
+        { "name": "ErrorControl", "type": "dword", "data": 0 },
+        { "name": "DisplayName", "type": "sz", "data": "Atrium web session host" },
+        { "name": "Description", "type": "sz", "data": "The Peios web UI: serves the browser-delivered session on port 8080" }
+      ]
+    }
+  ]
+}

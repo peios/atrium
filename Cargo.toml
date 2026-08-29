@@ -1,0 +1,15 @@
+[workspace]
+resolver = "2"
+members = ["atriumd"]
+
+# atrium is its own workspace root, like netd, resolvd and authd.
+#
+#   atriumd    the daemon: the Peios web session host. Today it serves one
+#              page; it grows one slice at a time (see the Atrium project in
+#              Acta).
+
+[workspace.package]
+version = "0.0.1"
+edition = "2024"
+license = "MIT"
+publish = false
