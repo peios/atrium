@@ -344,7 +344,10 @@ const session = {
   windows: new Map(),   // id -> { window, tab, frame }
   focus: null,
   view: 'toolbox',      // this tab's choice: 'toolbox' | 'windows'
-  send(msg) { if (this.sock && this.sock.readyState === 1) this.sock.send(JSON.stringify(msg)); },
+  send(msg) {
+    if (this.sock && this.sock.readyState === 1) this.sock.send(JSON.stringify(msg));
+    else console.warn('session: not connected; dropped', msg);
+  },
   // Focuses the app's existing window unless `fresh`; the session decides.
   launch(appId, fresh = false) { this.view = 'windows'; this.send({ t: 'launch', app: appId, new: fresh }); },
   isOpen(appId) { for (const { window: w } of this.windows.values()) if (w.app === appId) return true; return false; },
@@ -365,11 +368,17 @@ function connectSession() {
       case 'window.closed': removeWindow(m.id); renderWindows(); break;
       case 'window.minimized': { const e = session.windows.get(m.id); if (e) e.window.minimized = true; renderWindows(); break; }
       case 'window.restored': { const e = session.windows.get(m.id); if (e) e.window.minimized = false; renderWindows(); break; }
-      case 'focus': session.focus = m.id; if (m.id !== null) session.view = 'windows'; renderWindows(); break;
+      case 'focus': session.focus = m.id; session.view = m.id !== null ? 'windows' : 'toolbox'; renderWindows(); break;
       case 'error': console.warn('session:', m.message); break;
     }
   });
-  sock.addEventListener('close', () => { session.sock = null; setTimeout(connectSession, 1500); });
+  sock.addEventListener('open', () => console.info('session: connected'));
+  sock.addEventListener('error', () => console.warn('session: websocket error'));
+  sock.addEventListener('close', (e) => {
+    console.warn(`session: websocket closed (code ${e.code}${e.reason ? `, ${e.reason}` : ''}); reconnecting`);
+    session.sock = null;
+    setTimeout(connectSession, 1500);
+  });
 }
 
 function applySnapshot(m) {
@@ -407,8 +416,10 @@ function showToolbox() { session.view = 'toolbox'; renderWindows(); }
 function renderWindows() {
   renderSidebar();
   for (const tile of document.querySelectorAll('.tbA-tile')) tile.classList.toggle('is-open', session.isOpen(tile.dataset.id));
-  const haveWindows = session.windows.size > 0;
-  const showWs = session.view === 'windows' && haveWindows;
+  // Windows show only when something is focused and visible; otherwise
+  // the Toolbox, chrome and all.
+  const focusedEntry = session.focus !== null ? session.windows.get(session.focus) : null;
+  const showWs = session.view === 'windows' && !!focusedEntry && !focusedEntry.window.minimized;
   $('ws').hidden = !showWs;
   $('toolbox').hidden = showWs;
   $('nav-toolbox').classList.toggle('is-active', !showWs);
@@ -437,5 +448,6 @@ theme();
 sidebar();
 cmdk();
 $('nav-toolbox').addEventListener('click', showToolbox);
+window.atrium = { session };   // for the console and the dev harness
 loadApps().then(connectSession);
 whoami();

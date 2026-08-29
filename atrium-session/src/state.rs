@@ -46,9 +46,13 @@ pub enum Request {
     Close { id: u64 },
 }
 
+/// A connected shell. Its writer is shared between the broadcast path and
+/// the connection's own ping replies, behind one mutex, so no two writes
+/// ever interleave on the wire — an interleaved frame would corrupt the
+/// stream and drop the socket.
 struct Mirror {
     id: u64,
-    out: UnixStream,
+    out: Arc<Mutex<UnixStream>>,
 }
 
 #[derive(Default)]
@@ -71,16 +75,21 @@ impl State {
     /// gone and is dropped here.
     fn broadcast(&mut self, event: &serde_json::Value) {
         let text = event.to_string();
-        self.mirrors.retain_mut(|m| ws::send_text(&mut m.out, &text).is_ok());
+        self.mirrors.retain(|m| {
+            let mut out = m.out.lock().unwrap_or_else(|p| p.into_inner());
+            ws::send_text(&mut *out, &text).is_ok()
+        });
     }
 
     /// A shell connected: remember its writer, give it the snapshot.
-    pub fn attach(&mut self, out: UnixStream) -> u64 {
+    pub fn attach(&mut self, out: Arc<Mutex<UnixStream>>) -> u64 {
         self.next_mirror += 1;
         let id = self.next_mirror;
-        let mut m = Mirror { id, out };
-        let _ = ws::send_text(&mut m.out, &self.snapshot().to_string());
-        self.mirrors.push(m);
+        {
+            let mut w = out.lock().unwrap_or_else(|p| p.into_inner());
+            let _ = ws::send_text(&mut *w, &self.snapshot().to_string());
+        }
+        self.mirrors.push(Mirror { id, out });
         id
     }
 
@@ -150,8 +159,11 @@ impl State {
 
 /// Run one shell's websocket until it closes.
 pub fn serve(state: &Shared, mut conn: UnixStream) {
-    let Ok(out) = conn.try_clone() else { return };
-    let mirror = state.lock().unwrap_or_else(|p| p.into_inner()).attach(out);
+    // The read half is this thread's alone; the write half is shared with
+    // the broadcast path through the mirror's mutex, so replies and
+    // broadcasts serialise.
+    let Ok(writer) = conn.try_clone().map(|w| Arc::new(Mutex::new(w))) else { return };
+    let mirror = state.lock().unwrap_or_else(|p| p.into_inner()).attach(Arc::clone(&writer));
     while let Some(frame) = ws::read_frame(&mut conn) {
         match frame.opcode {
             ws::TEXT => {
@@ -161,14 +173,17 @@ pub fn serve(state: &Shared, mut conn: UnixStream) {
                 };
                 if let Some(message) = reply {
                     // Errors go only to the asker; they are not state.
-                    let _ = ws::send_text(&mut conn, &json!({ "t": "error", "message": message }).to_string());
+                    let mut w = writer.lock().unwrap_or_else(|p| p.into_inner());
+                    let _ = ws::send_text(&mut *w, &json!({ "t": "error", "message": message }).to_string());
                 }
             }
             ws::PING => {
-                let _ = ws::write_frame(&mut conn, ws::PONG, &frame.payload);
+                let mut w = writer.lock().unwrap_or_else(|p| p.into_inner());
+                let _ = ws::write_frame(&mut *w, ws::PONG, &frame.payload);
             }
             ws::CLOSE => {
-                let _ = ws::write_frame(&mut conn, ws::CLOSE, &[]);
+                let mut w = writer.lock().unwrap_or_else(|p| p.into_inner());
+                let _ = ws::write_frame(&mut *w, ws::CLOSE, &[]);
                 break;
             }
             _ => {}
