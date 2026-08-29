@@ -28,6 +28,10 @@ struct ManifestFile {
     icon: Option<String>,
     #[serde(default)]
     color: Option<String>,
+    /// Name of a glyph from the shell's built-in stroked icon set, used
+    /// when the app ships no icon file.
+    #[serde(default)]
+    glyph: Option<String>,
     #[serde(default = "default_entry")]
     entry: String,
 }
@@ -46,6 +50,7 @@ pub struct App {
     /// URL of the icon, served by us, or null.
     pub icon: Option<String>,
     pub color: Option<String>,
+    pub glyph: Option<String>,
     /// URL of the entry document.
     pub entry: String,
 }
@@ -94,6 +99,7 @@ pub fn catalogue() -> Vec<App> {
             category: m.category,
             icon: m.icon.as_deref().map(file_url),
             color: m.color,
+            glyph: m.glyph,
             entry: file_url(&m.entry),
         });
     }

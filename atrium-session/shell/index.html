@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-side-collapsed="1">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -7,57 +7,83 @@
 <link rel="stylesheet" href="/shell/shell.css">
 </head>
 <body>
-<div id="app">
-  <header id="topbar">
-    <div class="left">
-      <span class="brand"><span class="mark"></span>Atrium</span>
-      <span class="crumbs"><span class="dot"></span><span id="hostname">peios</span><span class="chev">›</span><span id="username">…</span></span>
-    </div>
-    <div class="right">
-      <div class="search"><span class="glyph">⌕</span><span class="hint">Search or try <code>"Restart resolvd"</code></span><kbd>⌘ K</kbd></div>
-      <button class="icon" id="theme" title="Theme">◐</button>
-      <button class="icon" title="Notifications">🔔</button>
-      <button class="icon" title="Settings">⚙</button>
-      <button class="avatar" id="avatar" aria-haspopup="menu" aria-expanded="false">··</button>
+<div class="app" id="app">
+  <header class="topbar">
+    <div class="logo"><div class="logo-mark"></div><div class="logo-text">Peios <span>/ Atrium</span></div></div>
+    <div class="scope-picker"><span class="dot"></span><span><strong id="hostname">…</strong></span><span class="sep">·</span><span id="username">…</span></div>
+    <div class="topbar-spacer"></div>
+    <button class="cmd-k" id="cmdk" type="button">
+      <span class="cmd-k-ico" data-icon="search"></span>
+      <span class="cmd-k-label"><span class="cmd-k-static">Search or</span><span class="cmd-k-rot in" id="cmdk-rot"><span class="cmd-k-rot-verb">try</span><span class="cmd-k-rot-hint" id="cmdk-hint">"Open terminal"</span></span></span>
+      <span class="kbd">⌘ K</span>
+    </button>
+    <button class="topbar-btn" id="theme" title="Theme" type="button"><span data-icon="moon"></span></button>
+    <button class="topbar-btn" title="Notifications" type="button"><span data-icon="bell"></span></button>
+    <button class="topbar-btn" title="Settings" type="button"><span data-icon="settings"></span></button>
+    <div class="avatar-wrap">
+      <button class="avatar" id="avatar" type="button" aria-haspopup="menu" aria-expanded="false">··</button>
       <div class="menu" id="profile-menu" role="menu" hidden>
-        <div class="menu-head">
-          <div class="menu-name" id="menu-name">…</div>
-          <div class="menu-sub" id="menu-user">…</div>
-        </div>
+        <div class="menu-head"><div class="menu-name" id="menu-name">…</div><div class="menu-sub" id="menu-user">…</div></div>
         <dl class="menu-facts">
           <dt>Machine</dt><dd id="menu-host">…</dd>
           <dt>Logon session</dt><dd id="menu-session">…</dd>
           <dt>SID</dt><dd id="menu-sid">…</dd>
         </dl>
-        <form method="post" action="/api/logout"><button class="menu-item danger" role="menuitem">Log out</button></form>
+        <form method="post" action="/api/logout"><button class="menu-item danger" role="menuitem" type="submit"><span data-icon="logout"></span>Log out</button></form>
       </div>
     </div>
   </header>
 
-  <nav id="dock">
-    <button class="dock-item active" title="Toolbox"><span class="tile grid"></span></button>
-    <div class="dock-group" id="pinned"></div>
+  <nav class="sidebar collapsed" id="sidebar">
+    <div class="sidebar-scroll">
+      <div class="nav-group">
+        <div class="nav-group-label">Overview</div>
+        <div class="sb-toolbox-entry is-active" id="nav-toolbox" title="Toolbox — all apps">
+          <div class="grid-icon" aria-hidden="true"><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span></div>
+          <span class="nav-label">Toolbox</span>
+          <span class="sb-toolbox-count" id="nav-toolbox-count">0</span>
+        </div>
+      </div>
+      <div id="nav-pinned"></div>
+    </div>
+    <button class="sidebar-collapse" id="collapse" type="button" title="Expand sidebar" aria-label="Expand sidebar">
+      <span class="sc-chev" data-icon="chevD" data-size="12"></span>
+      <span class="sc-label">Collapse</span>
+      <span class="sc-kbd">[</span>
+    </button>
   </nav>
 
-  <main id="workspace">
-    <section class="pane">
-      <div class="toolbox">
-        <div class="toolbox-head">
+  <main class="main" id="main">
+    <div class="tbU">
+      <div class="tbU-header">
+        <div class="tbU-titlebar">
           <div>
             <h1>Toolbox</h1>
-            <p class="sub" id="toolbox-sub">No apps installed</p>
+            <div class="sub" id="toolbox-sub">No apps installed</div>
           </div>
-          <div class="seg"><button class="on">▦ Grid</button><button>☰ Browse</button></div>
+          <div class="tbU-layout-toggle" role="tablist" aria-label="Layout">
+            <button class="on" type="button" role="tab" aria-selected="true"><span class="lt-grid-ico" aria-hidden="true"><span></span><span></span><span></span><span></span></span>Grid</button>
+            <button type="button" role="tab" aria-selected="false" disabled title="Browse — not yet"><span class="lt-list-ico" aria-hidden="true"><span></span><span></span><span></span></span>Browse</button>
+          </div>
         </div>
-        <label class="toolbox-search"><span class="glyph">⌕</span><input id="filter" type="search" placeholder="What do you need? Try &quot;dns&quot;, &quot;services&quot;, &quot;terminal&quot;…" autocomplete="off"></label>
-        <div class="chips"><span class="chip" id="chip-pinned">◇ Pinned · 0</span><span class="count" id="shown">0 shown</span></div>
+        <div class="tbU-search-wrap">
+          <label class="tbU-search">
+            <span data-icon="search"></span>
+            <input id="filter" type="search" placeholder="What do you need?  Try “terminal”, “services”, “registry”…" autocomplete="off" autofocus>
+            <button class="tbU-clear" id="filter-clear" type="button" aria-label="Clear" hidden><span data-icon="close" data-size="11"></span></button>
+            <span class="kbd">↵</span>
+          </label>
+          <div class="tbU-filters">
+            <button class="tbU-chip" id="chip-pinned" type="button"><span data-icon="pin" data-size="11"></span>Pinned <span id="chip-pinned-n">· 0</span></button>
+            <span class="tbU-count" id="shown">0 shown</span>
+          </div>
+        </div>
       </div>
-      <div id="apps"></div>
-    </section>
-    <div class="divider"></div>
-    <section class="pane empty"></section>
+      <div class="tbU-body" id="apps"></div>
+    </div>
   </main>
 </div>
+<div class="tb-ctx" id="ctx" hidden></div>
 <script type="module" src="/shell/shell.js"></script>
 </body>
 </html>
