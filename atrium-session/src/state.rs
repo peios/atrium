@@ -30,7 +30,14 @@ pub struct Window {
 #[derive(Debug, Deserialize)]
 #[serde(tag = "t", rename_all = "kebab-case")]
 pub enum Request {
-    Launch { app: String },
+    /// Open `app`. Without `new`, an app that already has a window is
+    /// focused rather than opened again — one window per app is the
+    /// default; a second is a deliberate ask.
+    Launch {
+        app: String,
+        #[serde(default)]
+        new: bool,
+    },
     Focus { id: u64 },
     Close { id: u64 },
 }
@@ -79,7 +86,12 @@ impl State {
 
     pub fn handle(&mut self, req: Request) -> Result<(), String> {
         match req {
-            Request::Launch { app } => {
+            Request::Launch { app, new } => {
+                if !new {
+                    if let Some(existing) = self.windows.iter().rev().find(|w| w.app == app).map(|w| w.id) {
+                        return self.handle(Request::Focus { id: existing });
+                    }
+                }
                 let found = apps::catalogue().into_iter().find(|a| a.id == app).ok_or_else(|| format!("no such app: {app}"))?;
                 self.next_window += 1;
                 let w = Window { id: self.next_window, app: found.id, title: found.name, url: found.entry };

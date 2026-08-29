@@ -162,6 +162,7 @@ function renderGrid() {
       const tile = el('button', 'tbA-tile');
       tile.type = 'button';
       tile.dataset.id = app.id;
+      if (session.isOpen(app.id)) tile.classList.add('is-open');
       tile.title = 'Open — right-click to pin';
       if (pins.has(app.id)) {
         const pc = el('span', 'pin-corner'); pc.title = 'Pinned'; pc.append(icon('check', 11));
@@ -199,34 +200,50 @@ function renderGrid() {
   $('filter-clear').hidden = !apps.filter;
 }
 
+// Pinned apps grouped by category, each with a running dot when it has a
+// window; then open-but-unpinned apps under "Open", Ubuntu-dock style.
 function renderSidebar() {
   const root = $('nav-pinned');
   root.replaceChildren();
   const byId = new Map(apps.all.map((a) => [a.id, a]));
   const pinned = pins.ids.map((id) => byId.get(id)).filter(Boolean);
-  if (!pinned.length) {
-    root.append(el('div', 'sidebar-empty', 'Nothing pinned yet — right-click an app in the Toolbox.'));
-    return;
-  }
-  // Grouped by category, in first-seen order; uncategorised apps last.
-  const groups = new Map();
-  for (const a of pinned) {
-    const cat = a.category || 'Other';
-    if (!groups.has(cat)) groups.set(cat, []);
-    groups.get(cat).push(a);
-  }
-  for (const [cat, items] of groups) {
-    const g = el('div', 'nav-group');
-    g.append(el('div', 'nav-group-label', cat));
-    for (const app of items) {
-      const b = el('button', 'nav-item'); b.type = 'button';
-      b.title = `${app.name} — right-click to unpin`;
-      b.append(glyph(app, 'xs'), el('span', 'nav-label', app.name));
-      b.addEventListener('click', () => session.launch(app.id));
-      b.addEventListener('contextmenu', (e) => { e.preventDefault(); openCtx(app, e.clientX, e.clientY); });
-      g.append(b);
+  const focusedApp = session.focus !== null ? session.windows.get(session.focus)?.window.app : null;
+  const item = (app, unpinHint) => {
+    const open = session.isOpen(app.id);
+    const b = el('button', 'nav-item' + (open ? ' is-open' : '') + (app.id === focusedApp && session.view === 'windows' ? ' active' : ''));
+    b.type = 'button';
+    b.title = `${app.name}${open ? ' — open' : ''}${unpinHint ? ' — right-click to unpin' : ''}`;
+    b.append(glyph(app, 'xs'), el('span', 'nav-label', app.name));
+    if (open) { const dot = el('span', 'nav-running'); dot.setAttribute('aria-label', 'open'); b.append(dot); }
+    b.addEventListener('click', () => session.launch(app.id));
+    b.addEventListener('contextmenu', (e) => { e.preventDefault(); openCtx(app, e.clientX, e.clientY); });
+    return b;
+  };
+  if (pinned.length) {
+    // Grouped by category, in first-seen order; uncategorised apps last.
+    const groups = new Map();
+    for (const a of pinned) {
+      const cat = a.category || 'Other';
+      if (!groups.has(cat)) groups.set(cat, []);
+      groups.get(cat).push(a);
     }
+    for (const [cat, items] of groups) {
+      const g = el('div', 'nav-group');
+      g.append(el('div', 'nav-group-label', cat));
+      for (const app of items) g.append(item(app, true));
+      root.append(g);
+    }
+  }
+  const openUnpinned = [...new Set([...session.windows.values()].map(({ window: w }) => w.app))]
+    .filter((id) => !pins.has(id)).map((id) => byId.get(id)).filter(Boolean);
+  if (openUnpinned.length) {
+    const g = el('div', 'nav-group');
+    g.append(el('div', 'nav-group-label', 'Open'));
+    for (const app of openUnpinned) g.append(item(app, false));
     root.append(g);
+  }
+  if (!pinned.length && !openUnpinned.length) {
+    root.append(el('div', 'sidebar-empty', 'Nothing pinned yet — right-click an app in the Toolbox.'));
   }
 }
 
@@ -248,7 +265,8 @@ function openCtx(app, x, y) {
   const pinned = pins.has(app.id);
   ctx.append(
     meta,
-    item('play', 'Open', '↵', () => session.launch(app.id)),
+    item('play', session.isOpen(app.id) ? 'Switch to' : 'Open', '↵', () => session.launch(app.id)),
+    item('plus', 'Open in new window', null, () => session.launch(app.id, true)),
     el('div', 'tb-ctx-sep'),
     item(pinned ? 'close' : 'plus', pinned ? 'Unpin from sidebar' : 'Pin to sidebar', null, () => { pins.toggle(app.id); render(); }),
     item('info', 'About this app…', null, null, true),
@@ -299,7 +317,9 @@ const session = {
   focus: null,
   view: 'toolbox',      // this tab's choice: 'toolbox' | 'windows'
   send(msg) { if (this.sock && this.sock.readyState === 1) this.sock.send(JSON.stringify(msg)); },
-  launch(appId) { this.send({ t: 'launch', app: appId }); },
+  // Focuses the app's existing window unless `fresh`; the session decides.
+  launch(appId, fresh = false) { this.view = 'windows'; this.send({ t: 'launch', app: appId, new: fresh }); },
+  isOpen(appId) { for (const { window: w } of this.windows.values()) if (w.app === appId) return true; return false; },
   focusWindow(id) { this.send({ t: 'focus', id }); },
   close(id) { this.send({ t: 'close', id }); },
 };
@@ -351,6 +371,8 @@ function removeWindow(id) {
 function showToolbox() { session.view = 'toolbox'; renderWindows(); }
 
 function renderWindows() {
+  renderSidebar();
+  for (const tile of document.querySelectorAll('.tbA-tile')) tile.classList.toggle('is-open', session.isOpen(tile.dataset.id));
   const haveWindows = session.windows.size > 0;
   const showWs = session.view === 'windows' && haveWindows;
   $('ws').hidden = !showWs;

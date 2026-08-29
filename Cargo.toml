@@ -20,7 +20,7 @@ members = ["atrium-proto", "atrium-http", "atriumd", "atrium-server", "atrium-se
 #                   atriumd with the logon token as its identity.
 
 [workspace.package]
-version = "0.0.9"
+version = "0.0.10"
 edition = "2024"
 license = "MIT"
 publish = false
