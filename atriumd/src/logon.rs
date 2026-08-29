@@ -61,7 +61,6 @@ pub struct Logon {
     pub pending_fd: Option<OwnedFd>,
     /// `--unrestricted`: spawn session hosts without installing a token.
     pub unrestricted: bool,
-    jobs: Option<JobsClient>,
 }
 
 /// Which denials leave the page usable for another try (the same rule as
@@ -75,12 +74,13 @@ impl Logon {
         Logon { unrestricted, ..Default::default() }
     }
 
-    /// The jobs connection, made on first use and remade after a failure.
-    fn jobs(&mut self) -> std::io::Result<&mut JobsClient> {
-        if self.jobs.is_none() {
-            self.jobs = Some(JobsClient::connect()?);
-        }
-        Ok(self.jobs.as_mut().expect("connected"))
+    /// A jobs connection for one operation. Never kept: peinit closes a
+    /// jobs connection idle for 30 s (PSPU §7.A), and a logon is rare
+    /// enough that the first one after any quiet spell would find a dead
+    /// socket. Connecting is one syscall; a connection per operation is
+    /// the honest shape.
+    fn jobs(&mut self) -> std::io::Result<JobsClient> {
+        JobsClient::connect()
     }
 
     pub fn start(&mut self, conv: u64, username: String, remote: String) -> Reply {
@@ -159,11 +159,8 @@ impl Logon {
         };
         log::info(format_args!("session {session} ({username}) logged out; stopping job {job_id}"));
         match self.jobs() {
-            Ok(jobs) => spawn::terminate(jobs, &job_id),
-            Err(e) => {
-                log::error(format_args!("jobs socket: {e}"));
-                self.jobs = None;
-            }
+            Ok(mut jobs) => spawn::terminate(&mut jobs, &job_id),
+            Err(e) => log::error(format_args!("jobs socket: {e}")),
         }
         Reply::Ok
     }
@@ -172,12 +169,9 @@ impl Logon {
     pub fn ended(&mut self, session: u64) {
         let Some(s) = self.sessions.remove(&session) else { return };
         // How it ended is peinit's record, not ours.
-        let how = match self.jobs().and_then(|j| j.status(&s.job_id)) {
+        let how = match self.jobs().and_then(|mut j| j.status(&s.job_id)) {
             Ok(view) => jobs::describe_end(&view),
-            Err(e) => {
-                self.jobs = None;
-                format!("exited (status unavailable: {e})")
-            }
+            Err(e) => format!("exited (status unavailable: {e})"),
         };
         log::info(format_args!("session {session} ({}) ended: {how}", s.username));
     }
@@ -243,14 +237,11 @@ impl Logon {
                 let unrestricted = self.unrestricted;
                 let spawned = match self
                     .jobs()
-                    .and_then(|jobs| spawn::spawn_session(jobs, session, if unrestricted { None } else { Some(&token) }, &c.username, &granted.profile))
+                    .and_then(|mut jobs| spawn::spawn_session(&mut jobs, session, if unrestricted { None } else { Some(&token) }, &c.username, &granted.profile))
                 {
                     Ok(s) => s,
                     Err(e) => {
                         log::error(format_args!("could not start a session host for {}: {e}", c.username));
-                        // A failed exchange may have left the connection in
-                        // an unknown state; make a fresh one next time.
-                        self.jobs = None;
                         // The token drops here, which ends the logon session.
                         return Reply::Error { conv, reason: "could not start a session".into() };
                     }
