@@ -7,21 +7,25 @@
 //! already authenticated, already tagged with which browser it came from.
 //! "Accept" here means "receive a descriptor".
 //!
-//! Slice 3: it answers with a page proving where it runs — the token's user
-//! SID, the pid, the browser-session tag the server attached. The shell,
-//! apps and everything else grow from here.
+//! It serves the shell — the chrome the user lives in — from files built
+//! into the binary, and answers the shell's API. Slice 4: the chrome is
+//! lifeless; behaviour arrives section by section.
 
 use std::io::Write;
 use std::os::fd::FromRawFd;
 use std::os::unix::net::UnixStream;
 
-use atrium_http::{Request, Response, read_request, write_response};
+use atrium_http::{Response, read_request, write_response};
 use atrium_proto::{CONTROL_FD, SessionMessage, read_frame_fd};
 use peios::token::{Token, TokenAccess};
 use serde_json::json;
 
-fn escape(s: &str) -> String {
-    s.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;").replace('"', "&quot;")
+const SHELL_HTML: &str = include_str!("../shell/index.html");
+const SHELL_CSS: &str = include_str!("../shell/shell.css");
+const SHELL_JS: &str = include_str!("../shell/shell.js");
+
+fn asset(body: &'static str, content_type: &'static str) -> Response {
+    Response { status: 200, reason: "OK", content_type, extra_headers: vec![], body: body.as_bytes().to_vec() }
 }
 
 struct Identity {
@@ -36,30 +40,6 @@ fn identity() -> Identity {
     Identity { user_sid, logon_session }
 }
 
-fn page(req: &Request, id: &Identity) -> String {
-    let user = std::env::var("USER").unwrap_or_default();
-    let browser = req.header("x-atrium-browser-session").unwrap_or("-");
-    let addr = req.header("x-atrium-client-addr").unwrap_or("-");
-    format!(
-        "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\"><title>Atrium</title>\
-<style>:root{{color-scheme:light dark;font-family:system-ui,sans-serif}}body{{margin:2rem}}dt{{font-weight:600;margin-top:.5rem}}button{{font:inherit}}</style></head>\
-<body><h1>Hello {user}</h1>\
-<p>This page comes from <code>atrium-session</code> pid {pid}, a process that is you.</p>\
-<dl><dt>Token user</dt><dd><code>{sid}</code></dd>\
-<dt>Logon session</dt><dd><code>{ls}</code></dd>\
-<dt>Browser session</dt><dd><code>{browser}</code> from <code>{addr}</code></dd>\
-<dt>Path</dt><dd><code>{path}</code></dd></dl>\
-<form method=\"post\" action=\"/api/logout\"><button>Log out</button></form></body></html>",
-        user = escape(&user),
-        pid = std::process::id(),
-        sid = escape(&id.user_sid),
-        ls = escape(&id.logon_session),
-        browser = escape(browser),
-        addr = escape(addr),
-        path = escape(&req.path),
-    )
-}
-
 fn serve(mut conn: UnixStream, id: &Identity) {
     let Some(req) = read_request(&mut conn) else {
         write_response(&mut conn, &Response::status(400, "Bad Request"));
@@ -71,9 +51,12 @@ fn serve(mut conn: UnixStream, id: &Identity) {
             "user_sid": id.user_sid,
             "logon_session": id.logon_session,
             "pid": std::process::id(),
+            "hostname": std::fs::read_to_string("/proc/sys/kernel/hostname").map(|h| h.trim().to_string()).unwrap_or_default(),
             "browser_session": req.header("x-atrium-browser-session"),
         })),
-        ("GET", _) => Response::html(&page(&req, id)),
+        ("GET", "/") => asset(SHELL_HTML, "text/html; charset=utf-8"),
+        ("GET", "/shell/shell.css") => asset(SHELL_CSS, "text/css; charset=utf-8"),
+        ("GET", "/shell/shell.js") => asset(SHELL_JS, "text/javascript; charset=utf-8"),
         _ => Response::status(404, "Not Found"),
     };
     write_response(&mut conn, &resp);

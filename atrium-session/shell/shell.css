@@ -1,0 +1,103 @@
+/* Atrium shell — the lifeless chrome. Tokens first; everything below uses them. */
+:root {
+  color-scheme: light dark;
+  --bg: #f6f7f9; --pane: #fff; --ink: #1c1f24; --muted: #6b7280; --line: #e5e7eb;
+  --accent: #2f6fed; --dock: #fff; --card: #fff; --hover: #f1f3f6;
+  --font: system-ui, -apple-system, "Segoe UI", Inter, sans-serif;
+  --mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+  --top-h: 40px; --dock-w: 44px;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #111318; --pane: #171a20; --ink: #e6e8ee; --muted: #8b93a3; --line: #262a33;
+    --accent: #5b8cff; --dock: #14171d; --card: #1b1f27; --hover: #20242d;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #111318; --pane: #171a20; --ink: #e6e8ee; --muted: #8b93a3; --line: #262a33;
+  --accent: #5b8cff; --dock: #14171d; --card: #1b1f27; --hover: #20242d;
+}
+* { box-sizing: border-box; }
+html, body { height: 100%; margin: 0; }
+body { font: 13px/1.4 var(--font); color: var(--ink); background: var(--bg); overflow: hidden; }
+button { font: inherit; color: inherit; background: none; border: 0; cursor: pointer; }
+code, kbd { font-family: var(--mono); font-size: 11px; }
+
+#app {
+  height: 100%;
+  display: grid;
+  grid-template-rows: var(--top-h) 1fr;
+  grid-template-columns: var(--dock-w) 1fr;
+  grid-template-areas: "top top" "dock work";
+}
+
+/* Top bar */
+#topbar {
+  grid-area: top; display: flex; align-items: center; justify-content: space-between;
+  padding: 0 12px; background: var(--pane); border-bottom: 1px solid var(--line);
+}
+#topbar .left, #topbar .right { display: flex; align-items: center; gap: 10px; }
+.brand { display: flex; align-items: center; gap: 8px; color: var(--muted); font-weight: 500; }
+.brand .mark { width: 16px; height: 16px; border-radius: 4px; background: var(--ink); display: inline-block; }
+.crumbs { display: flex; align-items: center; gap: 6px; padding: 3px 10px; border-radius: 999px; background: var(--hover); font-weight: 500; }
+.crumbs .dot { width: 7px; height: 7px; border-radius: 50%; background: #22c55e; }
+.crumbs .chev { color: var(--muted); }
+.search { display: flex; align-items: center; gap: 8px; min-width: 300px; padding: 5px 10px; border-radius: 8px; background: var(--hover); color: var(--muted); }
+.search .glyph { font-size: 14px; }
+.search kbd { margin-left: auto; padding: 1px 6px; border: 1px solid var(--line); border-radius: 4px; background: var(--pane); }
+.search code, .toolbox-search code { color: var(--accent); }
+button.icon { width: 28px; height: 28px; border-radius: 6px; color: var(--muted); font-size: 14px; }
+button.icon:hover { background: var(--hover); }
+.avatar { width: 26px; height: 26px; border-radius: 50%; background: var(--accent); color: #fff; display: grid; place-items: center; font-size: 11px; font-weight: 600; }
+
+/* Dock */
+#dock {
+  grid-area: dock; display: flex; flex-direction: column; align-items: center; gap: 6px;
+  padding: 8px 0; background: var(--dock); border-right: 1px solid var(--line);
+}
+.dock-group { display: flex; flex-direction: column; gap: 6px; padding-top: 10px; margin-top: 4px; border-top: 1px solid var(--line); width: 100%; align-items: center; }
+.dock-item { width: 32px; height: 32px; border-radius: 8px; display: grid; place-items: center; position: relative; }
+.dock-item:hover { background: var(--hover); }
+.dock-item.active::before { content: ""; position: absolute; left: -6px; top: 8px; width: 3px; height: 16px; border-radius: 2px; background: var(--accent); }
+.tile { width: 18px; height: 18px; border-radius: 5px; background: var(--accent); }
+.dock-item.active .tile { width: 22px; height: 22px; }
+.tile.grid { background: var(--accent); }
+.tile.c1 { background: #3b82f6; } .tile.c2 { background: #3b82f6; } .tile.c3 { background: #3b82f6; }
+.tile.c4 { background: #a855f7; } .tile.c5 { background: #06b6d4; } .tile.c6 { background: #22c55e; }
+.dock-item .tile { opacity: .85; }
+
+/* Workspace: panes and a split divider */
+#workspace { grid-area: work; display: flex; min-width: 0; min-height: 0; }
+.pane { flex: 1 1 0; min-width: 0; overflow: auto; padding: 32px 24px; }
+.pane.empty { background: var(--bg); }
+.divider { width: 4px; margin: 24px 0; border-radius: 2px; background: var(--line); cursor: col-resize; }
+.divider:hover { background: var(--muted); }
+
+/* Toolbox (launcher) */
+.toolbox { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 20px 20px 14px; max-width: 1000px; }
+.toolbox-head { display: flex; justify-content: space-between; align-items: flex-start; }
+.toolbox h1 { margin: 0 0 2px; font-size: 18px; font-weight: 600; }
+.toolbox .sub { margin: 0; color: var(--muted); font-size: 12px; }
+.seg { display: flex; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
+.seg button { padding: 4px 10px; color: var(--muted); }
+.seg button.on { background: var(--hover); color: var(--ink); }
+.toolbox-search { display: flex; align-items: center; gap: 8px; margin: 14px 0 10px; padding: 8px 12px; border: 1px solid var(--line); border-radius: 8px; color: var(--muted); }
+.chips { display: flex; gap: 6px; align-items: center; }
+.chip { padding: 2px 8px; border: 1px solid var(--line); border-radius: 999px; font-size: 11px; color: var(--muted); }
+.count { margin-left: auto; color: var(--muted); font-family: var(--mono); font-size: 11px; }
+
+/* App sections and applet cards */
+#apps { max-width: 1000px; }
+.app-section { margin-top: 28px; }
+.app-head { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+.app-head .swatch { width: 14px; height: 14px; border-radius: 4px; }
+.app-head .name { font-weight: 600; }
+.app-head .kind { font-size: 10px; letter-spacing: .08em; color: var(--muted); font-family: var(--mono); }
+.app-head .desc { font-style: italic; color: var(--muted); font-size: 12px; }
+.app-head .ver { margin-left: auto; font-family: var(--mono); font-size: 11px; color: var(--muted); }
+.cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(128px, 1fr)); gap: 10px; }
+.card { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 14px 8px 12px; text-align: center; }
+.card:hover { border-color: var(--muted); }
+.card .icon { width: 44px; height: 44px; margin: 0 auto 10px; border-radius: 12px; display: grid; place-items: center; color: #fff; font-size: 20px; }
+.card .title { font-weight: 500; }
+.card .blurb { margin-top: 4px; color: var(--muted); font-size: 11px; line-height: 1.35; }
