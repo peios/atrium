@@ -35,7 +35,12 @@ fn server_path() -> String {
 /// Build the token the server runs under. `None` under `--unrestricted`, for
 /// a host with no KACS.
 fn restricted_token() -> std::io::Result<Token> {
-    let me = Token::open_self(true, TokenAccess::DUPLICATE | TokenAccess::QUERY).map_err(std::io::Error::other)?;
+    // ASSIGN_PRIMARY as well as DUPLICATE: the fd `restrict` returns carries
+    // the access mask of the fd it was made from (token_fd.c,
+    // pkm_kacs_token_to_fd(new_token, tf->access_mask)), and install needs
+    // ASSIGN_PRIMARY on the fd being installed.
+    let me = Token::open_self(true, TokenAccess::DUPLICATE | TokenAccess::QUERY | TokenAccess::ASSIGN_PRIMARY)
+        .map_err(std::io::Error::other)?;
     let spec = RestrictSpec { privs_to_delete: Privileges::all(), ..RestrictSpec::default() };
     me.restrict(&spec).map_err(std::io::Error::other)
 }
