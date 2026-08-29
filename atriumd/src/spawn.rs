@@ -167,6 +167,7 @@ pub fn spawn_session(session: u64, token: Option<&Token>, username: &str, profil
         format!("LOGNAME={username}"),
         "PATH=/usr/bin:/bin".to_string(),
         format!("ATRIUM_SESSION={session}"),
+        format!("ATRIUM_DISPLAY_NAME={}", if profile.display_name.is_empty() { username } else { profile.display_name.as_str() }),
     ]
     .into_iter()
     .filter_map(|s| CString::new(s).ok())

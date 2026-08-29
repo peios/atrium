@@ -55,16 +55,64 @@ function renderApps(root, apps) {
   }
 }
 
+const $ = (id) => document.getElementById(id);
+
+// Identity: everything the chrome says about who and where comes from the
+// session host, which is the user and knows.
 async function whoami() {
   try {
     const r = await fetch('/api/whoami');
     if (!r.ok) return;
     const me = await r.json();
-    document.getElementById('username').textContent = me.user || '?';
-    if (me.hostname) document.getElementById('hostname').textContent = me.hostname;
-    document.getElementById('avatar').textContent = (me.user || '??').slice(0, 2).toUpperCase();
+    const name = me.display_name || me.user || '?';
+    $('username').textContent = me.user || '?';
+    if (me.hostname) $('hostname').textContent = me.hostname;
+    $('avatar').textContent = initials(name);
+    $('menu-name').textContent = name;
+    $('menu-user').textContent = me.user || '';
+    $('menu-host').textContent = me.hostname || '';
+    $('menu-session').textContent = me.session || me.logon_session || '';
+    $('menu-sid').textContent = me.user_sid || '';
+    $('menu-sid').title = me.user_sid || '';
   } catch { /* the chrome stands on its own */ }
 }
 
-renderApps(document.getElementById('apps'), PLACEHOLDER);
+function initials(name) {
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  const s = parts.length >= 2 ? parts[0][0] + parts[parts.length - 1][0] : name.slice(0, 2);
+  return s.toUpperCase();
+}
+
+// Menus: one open at a time, closed by a click elsewhere or Escape.
+function menu(button, panel) {
+  const open = () => { panel.hidden = false; button.setAttribute('aria-expanded', 'true'); };
+  const close = () => { panel.hidden = true; button.setAttribute('aria-expanded', 'false'); };
+  button.addEventListener('click', (e) => { e.stopPropagation(); panel.hidden ? open() : close(); });
+  panel.addEventListener('click', (e) => e.stopPropagation());
+  document.addEventListener('click', close);
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape') close(); });
+}
+
+// Theme: per browser, remembered. Three states — light, dark, or follow the
+// system — cycled by the button; the root attribute is what the CSS reads.
+function theme() {
+  const KEY = 'atrium.theme';
+  const apply = (t) => {
+    if (t === 'light' || t === 'dark') document.documentElement.dataset.theme = t;
+    else delete document.documentElement.dataset.theme;
+    $('theme').title = 'Theme: ' + (t || 'system');
+  };
+  let current = null;
+  try { current = localStorage.getItem(KEY); } catch {}
+  apply(current);
+  $('theme').addEventListener('click', () => {
+    current = current === 'light' ? 'dark' : current === 'dark' ? null : 'light';
+    try { current ? localStorage.setItem(KEY, current) : localStorage.removeItem(KEY); } catch {}
+    apply(current);
+  });
+}
+
+renderApps($('apps'), PLACEHOLDER);
+menu($('avatar'), $('profile-menu'));
+theme();
 whoami();

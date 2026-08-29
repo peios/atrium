@@ -15,10 +15,22 @@
     </div>
     <div class="right">
       <div class="search"><span class="glyph">⌕</span><span class="hint">Search or try <code>"Restart resolvd"</code></span><kbd>⌘ K</kbd></div>
-      <button class="icon" title="Theme">◐</button>
+      <button class="icon" id="theme" title="Theme">◐</button>
       <button class="icon" title="Notifications">🔔</button>
       <button class="icon" title="Settings">⚙</button>
-      <span class="avatar" id="avatar">··</span>
+      <button class="avatar" id="avatar" aria-haspopup="menu" aria-expanded="false">··</button>
+      <div class="menu" id="profile-menu" role="menu" hidden>
+        <div class="menu-head">
+          <div class="menu-name" id="menu-name">…</div>
+          <div class="menu-sub" id="menu-user">…</div>
+        </div>
+        <dl class="menu-facts">
+          <dt>Machine</dt><dd id="menu-host">…</dd>
+          <dt>Logon session</dt><dd id="menu-session">…</dd>
+          <dt>SID</dt><dd id="menu-sid">…</dd>
+        </dl>
+        <form method="post" action="/api/logout"><button class="menu-item danger" role="menuitem">Log out</button></form>
+      </div>
     </div>
   </header>
 

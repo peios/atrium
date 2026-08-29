@@ -48,6 +48,8 @@ fn serve(mut conn: UnixStream, id: &Identity) {
     let resp = match (req.method.as_str(), req.path.as_str()) {
         ("GET", "/api/whoami") => Response::json(&json!({
             "user": std::env::var("USER").unwrap_or_default(),
+            "display_name": std::env::var("ATRIUM_DISPLAY_NAME").unwrap_or_default(),
+            "session": std::env::var("ATRIUM_SESSION").unwrap_or_default(),
             "user_sid": id.user_sid,
             "logon_session": id.logon_session,
             "pid": std::process::id(),

@@ -20,7 +20,7 @@ members = ["atrium-proto", "atrium-http", "atriumd", "atrium-server", "atrium-se
 #                   jobs API once that exists.
 
 [workspace.package]
-version = "0.0.4"
+version = "0.0.5"
 edition = "2024"
 license = "MIT"
 publish = false
