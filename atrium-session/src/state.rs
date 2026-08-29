@@ -44,6 +44,11 @@ pub enum Request {
     Focus { id: u64 },
     Minimize { id: u64 },
     Close { id: u64 },
+    /// An app renamed its own window (via the SDK, relayed by the shell).
+    SetTitle { id: u64, title: String },
+    /// An app's request, relayed by the shell, which vouches for `win`.
+    /// Answered to the asking mirror only, correlated by `req`.
+    App { win: u64, req: u64, body: serde_json::Value },
 }
 
 /// A connected shell. Its writer is shared between the broadcast path and
@@ -97,7 +102,9 @@ impl State {
         self.mirrors.retain(|m| m.id != mirror);
     }
 
-    pub fn handle(&mut self, req: Request) -> Result<(), String> {
+    /// Handle one request. `Ok(Some(v))` is a direct reply for the asking
+    /// mirror alone; state changes travel by broadcast as always.
+    pub fn handle(&mut self, req: Request) -> Result<Option<serde_json::Value>, String> {
         match req {
             Request::Launch { app, new } => {
                 if !new {
@@ -116,7 +123,7 @@ impl State {
                 self.focus = Some(w.id);
                 self.broadcast(&json!({ "t": "window.opened", "window": w }));
                 self.broadcast(&json!({ "t": "focus", "id": w.id }));
-                Ok(())
+                Ok(None)
             }
             Request::Focus { id } => {
                 let w = self.windows.iter_mut().find(|w| w.id == id).ok_or_else(|| format!("no such window: {id}"))?;
@@ -126,7 +133,7 @@ impl State {
                 }
                 self.focus = Some(id);
                 self.broadcast(&json!({ "t": "focus", "id": id }));
-                Ok(())
+                Ok(None)
             }
             Request::Minimize { id } => {
                 let w = self.windows.iter_mut().find(|w| w.id == id).ok_or_else(|| format!("no such window: {id}"))?;
@@ -136,7 +143,24 @@ impl State {
                     self.focus = self.windows.iter().rev().find(|w| !w.minimized).map(|w| w.id);
                     self.broadcast(&json!({ "t": "focus", "id": self.focus }));
                 }
-                Ok(())
+                Ok(None)
+            }
+            Request::SetTitle { id, title } => {
+                let title: String = title.chars().take(120).collect();
+                if title.trim().is_empty() {
+                    return Err("empty title".into());
+                }
+                let w = self.windows.iter_mut().find(|w| w.id == id).ok_or_else(|| format!("no such window: {id}"))?;
+                w.title = title.clone();
+                self.broadcast(&json!({ "t": "window.titled", "id": id, "title": title }));
+                Ok(None)
+            }
+            Request::App { win, req, body } => {
+                if !self.windows.iter().any(|w| w.id == win) {
+                    return Err(format!("no such window: {win}"));
+                }
+                let reply = app_request(win, &body);
+                Ok(Some(json!({ "t": "app.reply", "win": win, "req": req, "body": reply })))
             }
             Request::Close { id } => {
                 let before = self.windows.len();
@@ -151,9 +175,37 @@ impl State {
                     self.focus = self.windows.iter().rev().find(|w| !w.minimized).map(|w| w.id);
                     self.broadcast(&json!({ "t": "focus", "id": self.focus }));
                 }
-                Ok(())
+                Ok(None)
             }
         }
+    }
+}
+
+/// Answer one app request. The session is the user, so everything here
+/// runs as them; `win` says which window asked, for the day requests are
+/// scoped per app. v0 knows one kind.
+fn app_request(_win: u64, body: &serde_json::Value) -> serde_json::Value {
+    let kind = body.get("kind").and_then(serde_json::Value::as_str).unwrap_or("");
+    match kind {
+        "system-info" => {
+            let read = |p: &str| std::fs::read_to_string(p).map(|s| s.trim().to_string()).unwrap_or_default();
+            let uptime = std::fs::read_to_string("/proc/uptime")
+                .ok()
+                .and_then(|s| s.split_whitespace().next().and_then(|f| f.parse::<f64>().ok()))
+                .unwrap_or(0.0) as u64;
+            json!({
+                "os": "Peios",
+                "atrium_version": env!("CARGO_PKG_VERSION"),
+                "hostname": read("/proc/sys/kernel/hostname"),
+                "kernel": read("/proc/sys/kernel/osrelease"),
+                "uptime_seconds": uptime,
+                "user": std::env::var("USER").unwrap_or_default(),
+                "display_name": std::env::var("ATRIUM_DISPLAY_NAME").unwrap_or_default(),
+                "logon_session": std::env::var("ATRIUM_SESSION").unwrap_or_default(),
+                "session_pid": std::process::id(),
+            })
+        }
+        other => json!({ "error": format!("unknown request kind: {other}") }),
     }
 }
 
@@ -167,14 +219,20 @@ pub fn serve(state: &Shared, mut conn: UnixStream) {
     while let Some(frame) = ws::read_frame(&mut conn) {
         match frame.opcode {
             ws::TEXT => {
-                let reply = match serde_json::from_slice::<Request>(&frame.payload) {
-                    Ok(req) => state.lock().unwrap_or_else(|p| p.into_inner()).handle(req).err(),
-                    Err(e) => Some(format!("bad request: {e}")),
+                let outcome = match serde_json::from_slice::<Request>(&frame.payload) {
+                    Ok(req) => state.lock().unwrap_or_else(|p| p.into_inner()).handle(req),
+                    Err(e) => Err(format!("bad request: {e}")),
                 };
-                if let Some(message) = reply {
-                    // Errors go only to the asker; they are not state.
+                // Direct replies and errors go only to the asker; they are
+                // not state.
+                let direct = match outcome {
+                    Ok(Some(v)) => Some(v),
+                    Ok(None) => None,
+                    Err(message) => Some(json!({ "t": "error", "message": message })),
+                };
+                if let Some(v) = direct {
                     let mut w = writer.lock().unwrap_or_else(|p| p.into_inner());
-                    let _ = ws::send_text(&mut *w, &json!({ "t": "error", "message": message }).to_string());
+                    let _ = ws::send_text(&mut *w, &v.to_string());
                 }
             }
             ws::PING => {

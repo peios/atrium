@@ -23,11 +23,14 @@ for (const holder of document.querySelectorAll('[data-icon]')) {
 // ---- Identity ---------------------------------------------------------
 // Everything the chrome says about who and where comes from the session
 // host, which is the user and knows.
+// Filled by whoami(); the app bus hands it to apps at handshake.
+let me = {};
+
 async function whoami() {
   try {
     const r = await fetch('/api/whoami');
     if (!r.ok) return;
-    const me = await r.json();
+    me = await r.json();
     const name = me.display_name || me.user || '?';
     $('username').textContent = me.user || '?';
     if (me.hostname) $('hostname').textContent = me.hostname;
@@ -73,6 +76,7 @@ function theme() {
     else delete document.documentElement.dataset.theme;
     $('theme').title = showingDark() ? 'Switch to light' : 'Switch to dark';
     $('theme').replaceChildren(icon(showingDark() ? 'sun' : 'moon'));
+    bus.themeChanged(showingDark() ? 'dark' : 'light');
   };
   let stored = null;
   try { stored = localStorage.getItem(KEY); } catch {}
@@ -368,6 +372,8 @@ function connectSession() {
       case 'window.closed': removeWindow(m.id); renderWindows(); break;
       case 'window.minimized': { const e = session.windows.get(m.id); if (e) e.window.minimized = true; renderWindows(); break; }
       case 'window.restored': { const e = session.windows.get(m.id); if (e) e.window.minimized = false; renderWindows(); break; }
+      case 'window.titled': { const e = session.windows.get(m.id); if (e) { e.window.title = m.title; e.frame.title = m.title; } renderWindows(); break; }
+      case 'app.reply': bus.deliverReply(m); break;
       case 'focus': session.focus = m.id; session.view = m.id !== null ? 'windows' : 'toolbox'; renderWindows(); break;
       case 'error': console.warn('session:', m.message); break;
     }
@@ -401,7 +407,11 @@ function addWindow(w) {
   frame.dataset.id = w.id;
   frame.hidden = true;
   $('ws-frames').append(frame);
-  session.windows.set(w.id, { window: w, frame });
+  // `booted` gates visibility: set by the SDK handshake, or by a grace
+  // timer so an app that never loads the SDK still shows.
+  const entry = { window: w, frame, booted: false };
+  entry.graceTimer = setTimeout(() => { entry.booted = true; renderWindows(); }, 1200);
+  session.windows.set(w.id, entry);
 }
 
 function removeWindow(id) {
@@ -425,7 +435,7 @@ function renderWindows() {
   $('nav-toolbox').classList.toggle('is-active', !showWs);
   // The bar shows the focused window; frames are only toggled.
   const focused = session.focus !== null ? session.windows.get(session.focus) : null;
-  for (const [id, { frame }] of session.windows) frame.hidden = !(showWs && id === session.focus);
+  for (const [id, entry] of session.windows) entry.frame.hidden = !(showWs && id === session.focus && entry.booted);
   const title = $('win-title');
   title.replaceChildren();
   if (focused) {
@@ -437,6 +447,65 @@ function renderWindows() {
 
 $('win-close').addEventListener('click', () => { if (session.focus !== null) session.close(session.focus); });
 $('win-min').addEventListener('click', () => { if (session.focus !== null) session.minimize(session.focus); });
+
+// ---- App bus ----------------------------------------------------------
+// The shell's half of the SDK: apps postMessage here, the shell vouches
+// for which window each frame is and relays what needs the session. The
+// frame is identified by its contentWindow — an app cannot claim to be a
+// window it is not in.
+const bus = {
+  frameWindow(source) {
+    for (const [id, entry] of session.windows) {
+      if (entry.frame.contentWindow === source) return { id, entry };
+    }
+    return null;
+  },
+  themeChanged(theme) {
+    for (const { frame } of session.windows.values()) {
+      if (frame.contentWindow) frame.contentWindow.postMessage({ t: 'theme', theme }, '*');
+    }
+  },
+  deliverReply(m) {
+    const entry = session.windows.get(m.win);
+    if (!entry || !entry.frame.contentWindow) return;
+    const { body } = m;
+    const out = body && body.error ? { t: 'reply', req: m.req, error: body.error } : { t: 'reply', req: m.req, body };
+    entry.frame.contentWindow.postMessage(out, '*');
+  },
+};
+
+window.addEventListener('message', (e) => {
+  const m = e.data;
+  if (!m || typeof m.t !== 'string') return;
+  const hit = bus.frameWindow(e.source);
+  if (!hit) return; // not one of our frames
+  const { id, entry } = hit;
+  switch (m.t) {
+    case 'hello': {
+      clearTimeout(entry.graceTimer);
+      entry.booted = true;
+      const theme = document.documentElement.dataset.theme
+        || (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+      e.source.postMessage({
+        t: 'ready',
+        window: id,
+        theme,
+        user: { user: me.user || '', display_name: me.display_name || '' },
+      }, '*');
+      renderWindows();
+      break;
+    }
+    case 'set-title':
+      if (typeof m.title === 'string') session.send({ t: 'set-title', id, title: m.title });
+      break;
+    case 'close':
+      session.close(id);
+      break;
+    case 'request':
+      if (Number.isInteger(m.req)) session.send({ t: 'app', win: id, req: m.req, body: m.body ?? {} });
+      break;
+  }
+});
 
 // ---- Wire up ----------------------------------------------------------
 pins.load();

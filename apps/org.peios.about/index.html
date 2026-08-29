@@ -1,4 +1,59 @@
 <!doctype html>
-<html lang="en"><head><meta charset="utf-8"><title>About</title>
-<style>:root{color-scheme:light dark;font-family:system-ui,sans-serif}body{margin:2rem}</style></head>
-<body><h1>Hello World</h1></body></html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>About</title>
+<style>
+  /* The design system's ground colours, keyed off data-theme, which the
+     SDK sets from the shell's theme before first paint completes. */
+  :root { color-scheme: light dark; font-family: system-ui, sans-serif;
+          --bg: #f8fafc; --fg: #0f172a; --muted: #64748b; --border: #e2e8f0; --card: #ffffff; }
+  :root[data-theme="dark"] { --bg: #0b1220; --fg: #e2e8f0; --muted: #94a3b8; --border: #1e293b; --card: #0f172a; }
+  body { margin: 0; background: var(--bg); color: var(--fg); display: grid; place-items: start center; min-height: 100vh; }
+  main { width: min(34rem, calc(100vw - 4rem)); margin-top: 12vh; }
+  h1 { font-size: 20px; font-weight: 600; letter-spacing: -0.015em; margin: 0 0 2px; }
+  .sub { color: var(--muted); font-size: 13px; margin-bottom: 18px; }
+  dl { display: grid; grid-template-columns: auto 1fr; gap: 8px 18px; margin: 0;
+       background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 16px 18px; font-size: 13.5px; }
+  dt { color: var(--muted); }
+  dd { margin: 0; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Peios</h1>
+  <div class="sub" id="sub">…</div>
+  <dl id="facts"></dl>
+</main>
+<script type="module">
+  import { atrium } from '/shell/sdk.js';
+
+  const pretty = (secs) => {
+    const d = Math.floor(secs / 86400), h = Math.floor(secs / 3600) % 24, m = Math.floor(secs / 60) % 60;
+    return [d && `${d}d`, (d || h) && `${h}h`, `${m}m`].filter(Boolean).join(' ');
+  };
+
+  const ctx = await atrium.ready();
+  const info = await atrium.request({ kind: 'system-info' });
+  document.getElementById('sub').textContent =
+    `Atrium ${info.atrium_version} on ${info.hostname || 'this machine'}`;
+  const facts = [
+    ['Hostname', info.hostname],
+    ['Kernel', info.kernel],
+    ['Uptime', pretty(info.uptime_seconds)],
+    ['User', info.display_name && info.display_name !== info.user ? `${info.display_name} (${info.user})` : info.user],
+    ['Logon session', info.logon_session],
+    ['Session host pid', info.session_pid],
+    ['Window', ctx.window],
+  ];
+  const dl = document.getElementById('facts');
+  for (const [k, v] of facts) {
+    if (v === '' || v === undefined) continue;
+    const dt = document.createElement('dt'); dt.textContent = k;
+    const dd = document.createElement('dd'); dd.textContent = v;
+    dl.append(dt, dd);
+  }
+</script>
+</body>
+</html>

@@ -1,0 +1,16 @@
+ev('[...document.querySelectorAll(".tbA-tile")].find(t=>t.dataset.id==="org.peios.about").click()'); time.sleep(2.5)
+print('frame visible:', ev('(() => { const f=document.querySelector("#ws-frames iframe"); return f && !f.hidden; })()'))
+print('booted:', ev('[...window.atrium.session.windows.values()][0].booted'))
+print("frame href:", ev("(() => { const f=document.querySelector(\"#ws-frames iframe\"); return f.contentWindow.location.href; })()"))
+print("frame doc head:", ev("(() => { const d=document.querySelector(\"#ws-frames iframe\").contentDocument; return d ? d.body.innerHTML.slice(0,160) : \"no doc\"; })()"))
+print('facts dts:', ev('(() => { const d=document.querySelector("#ws-frames iframe").contentDocument; return [...d.querySelectorAll("#facts dt")].map(x=>x.textContent); })()'))
+print('sub:', ev('(() => { const d=document.querySelector("#ws-frames iframe").contentDocument; const e=d.getElementById("sub"); return e ? e.textContent : "no #sub"; })()'))
+b = ev('(() => { const d=document.querySelector("#ws-frames iframe").contentDocument; return d.documentElement.dataset.theme; })()')
+ev('document.getElementById("theme").click()'); time.sleep(0.5)
+a = ev('(() => { const d=document.querySelector("#ws-frames iframe").contentDocument; return d.documentElement.dataset.theme; })()')
+print('theme before/after:', b, '->', a)
+s.settimeout(0.5)
+try:
+    while True: note(recv(s))
+except Exception: pass
+print('console:', [l for l in logs] or 'none')

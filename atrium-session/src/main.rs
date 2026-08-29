@@ -28,6 +28,7 @@ const SHELL_HTML: &str = include_str!("../shell/index.html");
 const SHELL_CSS: &str = include_str!("../shell/shell.css");
 const SHELL_JS: &str = include_str!("../shell/shell.js");
 const SHELL_ICONS: &str = include_str!("../shell/icons.js");
+const SHELL_SDK: &str = include_str!("../shell/sdk.js");
 
 fn asset(body: &'static str, content_type: &'static str) -> Response {
     Response { status: 200, reason: "OK", content_type, extra_headers: vec![], body: body.as_bytes().to_vec() }
@@ -83,6 +84,7 @@ fn serve(mut conn: UnixStream, id: &Identity, state: &state::Shared) {
         ("GET", "/shell/shell.css") => asset(SHELL_CSS, "text/css; charset=utf-8"),
         ("GET", "/shell/shell.js") => asset(SHELL_JS, "text/javascript; charset=utf-8"),
         ("GET", "/shell/icons.js") => asset(SHELL_ICONS, "text/javascript; charset=utf-8"),
+        ("GET", "/shell/sdk.js") => asset(SHELL_SDK, "text/javascript; charset=utf-8"),
         _ => Response::status(404, "Not Found"),
     };
     write_response(&mut conn, &resp);
