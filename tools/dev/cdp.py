@@ -39,6 +39,10 @@ call('Page.enable'); call('Page.navigate', url=url); time.sleep(2.5)
 def ev(expr):
     r = call('Runtime.evaluate', expression=expr, returnByValue=True, awaitPromise=True)
     return r.get('result', {}).get('value', r)
+import os as _os
+scen = _os.environ.get('CDP_SCENARIO')
+if scen:
+    exec(open(scen).read()); raise SystemExit
 print('title:', ev('document.title'))
 print('tiles:', ev('document.querySelectorAll(".tbA-tile").length'))
 print('ws state:', ev('typeof session !== "undefined" ? (session.sock && session.sock.readyState) : "no session"'))

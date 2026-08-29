@@ -24,6 +24,8 @@ pub struct Window {
     pub app: String,
     pub title: String,
     pub url: String,
+    /// Hidden but alive; its frame stays loaded. Focusing it restores it.
+    pub minimized: bool,
 }
 
 /// What a shell may ask for.
@@ -38,7 +40,9 @@ pub enum Request {
         #[serde(default)]
         new: bool,
     },
+    /// Show and focus; a minimised window is restored.
     Focus { id: u64 },
+    Minimize { id: u64 },
     Close { id: u64 },
 }
 
@@ -94,7 +98,11 @@ impl State {
                 }
                 let found = apps::catalogue().into_iter().find(|a| a.id == app).ok_or_else(|| format!("no such app: {app}"))?;
                 self.next_window += 1;
-                let w = Window { id: self.next_window, app: found.id, title: found.name, url: found.entry };
+                // "About", then "About 2", "About 3" — numbered by how many of
+                // this app are open, so two windows are told apart everywhere.
+                let n = self.windows.iter().filter(|w| w.app == found.id).count();
+                let title = if n == 0 { found.name.clone() } else { format!("{} {}", found.name, n + 1) };
+                let w = Window { id: self.next_window, app: found.id, title, url: found.entry, minimized: false };
                 self.windows.push(w.clone());
                 self.focus = Some(w.id);
                 self.broadcast(&json!({ "t": "window.opened", "window": w }));
@@ -102,11 +110,23 @@ impl State {
                 Ok(())
             }
             Request::Focus { id } => {
-                if !self.windows.iter().any(|w| w.id == id) {
-                    return Err(format!("no such window: {id}"));
+                let w = self.windows.iter_mut().find(|w| w.id == id).ok_or_else(|| format!("no such window: {id}"))?;
+                if w.minimized {
+                    w.minimized = false;
+                    self.broadcast(&json!({ "t": "window.restored", "id": id }));
                 }
                 self.focus = Some(id);
                 self.broadcast(&json!({ "t": "focus", "id": id }));
+                Ok(())
+            }
+            Request::Minimize { id } => {
+                let w = self.windows.iter_mut().find(|w| w.id == id).ok_or_else(|| format!("no such window: {id}"))?;
+                w.minimized = true;
+                self.broadcast(&json!({ "t": "window.minimized", "id": id }));
+                if self.focus == Some(id) {
+                    self.focus = self.windows.iter().rev().find(|w| !w.minimized).map(|w| w.id);
+                    self.broadcast(&json!({ "t": "focus", "id": self.focus }));
+                }
                 Ok(())
             }
             Request::Close { id } => {
@@ -118,8 +138,8 @@ impl State {
                 self.broadcast(&json!({ "t": "window.closed", "id": id }));
                 if self.focus == Some(id) {
                     // Focus falls to the most recently opened remaining
-                    // window, or nowhere.
-                    self.focus = self.windows.last().map(|w| w.id);
+                    // visible window, or nowhere.
+                    self.focus = self.windows.iter().rev().find(|w| !w.minimized).map(|w| w.id);
                     self.broadcast(&json!({ "t": "focus", "id": self.focus }));
                 }
                 Ok(())

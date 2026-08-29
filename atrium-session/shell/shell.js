@@ -207,17 +207,35 @@ function renderSidebar() {
   root.replaceChildren();
   const byId = new Map(apps.all.map((a) => [a.id, a]));
   const pinned = pins.ids.map((id) => byId.get(id)).filter(Boolean);
-  const focusedApp = session.focus !== null ? session.windows.get(session.focus)?.window.app : null;
-  const item = (app, unpinHint) => {
-    const open = session.isOpen(app.id);
-    const b = el('button', 'nav-item' + (open ? ' is-open' : '') + (app.id === focusedApp && session.view === 'windows' ? ' active' : ''));
+  const windowsOf = (appId) => [...session.windows.values()].map(({ window: w }) => w).filter((w) => w.app === appId);
+  // One entry per open window (its title, a running dot, dimmed when
+  // minimised); an app with no window gets a single launcher entry.
+  const windowItem = (app, w, unpinHint) => {
+    const active = w.id === session.focus && session.view === 'windows';
+    const b = el('button', 'nav-item is-open' + (active ? ' active' : '') + (w.minimized ? ' is-min' : ''));
     b.type = 'button';
-    b.title = `${app.name}${open ? ' — open' : ''}${unpinHint ? ' — right-click to unpin' : ''}`;
+    b.title = `${w.title}${w.minimized ? ' — minimised' : ''}${unpinHint ? ' — right-click for options' : ''}`;
+    b.append(glyph(app, 'xs'), el('span', 'nav-label', w.title));
+    const dot = el('span', 'nav-running'); dot.setAttribute('aria-label', 'open'); b.append(dot);
+    b.addEventListener('click', () => session.focusWindow(w.id));
+    b.addEventListener('auxclick', (e) => { if (e.button === 1) session.close(w.id); });
+    b.addEventListener('contextmenu', (e) => { e.preventDefault(); openCtx(app, e.clientX, e.clientY, w); });
+    return b;
+  };
+  const launcherItem = (app) => {
+    const b = el('button', 'nav-item'); b.type = 'button';
+    b.title = `${app.name} — right-click to unpin`;
     b.append(glyph(app, 'xs'), el('span', 'nav-label', app.name));
-    if (open) { const dot = el('span', 'nav-running'); dot.setAttribute('aria-label', 'open'); b.append(dot); }
     b.addEventListener('click', () => session.launch(app.id));
     b.addEventListener('contextmenu', (e) => { e.preventDefault(); openCtx(app, e.clientX, e.clientY); });
     return b;
+  };
+  const item = (app, unpinHint) => {
+    const ws = windowsOf(app.id);
+    if (!ws.length) return launcherItem(app);
+    const frag = document.createDocumentFragment();
+    for (const w of ws) frag.append(windowItem(app, w, unpinHint));
+    return frag;
   };
   if (pinned.length) {
     // Grouped by category, in first-seen order; uncategorised apps last.
@@ -250,11 +268,11 @@ function renderSidebar() {
 function render() { renderGrid(); renderSidebar(); }
 
 // ---- Context menu -----------------------------------------------------
-function openCtx(app, x, y) {
+function openCtx(app, x, y, win) {
   const ctx = $('ctx');
   ctx.replaceChildren();
   const meta = el('div', 'tb-ctx-meta');
-  meta.append(el('div', 'name', app.name), el('div', 'from', app.category ? `from ${app.category}` : app.id));
+  meta.append(el('div', 'name', win ? win.title : app.name), el('div', 'from', app.category ? `from ${app.category}` : app.id));
   const item = (glyphName, label, kbd, onClick, dim) => {
     const b = el('button', 'tb-ctx-item' + (dim ? ' dim' : '')); b.type = 'button';
     b.append(icon(glyphName, 12), el('span', '', label));
@@ -263,9 +281,19 @@ function openCtx(app, x, y) {
     return b;
   };
   const pinned = pins.has(app.id);
+  ctx.append(meta);
+  if (win) {
+    ctx.append(
+      item('play', win.minimized ? 'Restore' : 'Switch to', '↵', () => session.focusWindow(win.id)),
+      ...(win.minimized ? [] : [item('minus', 'Minimise', null, () => session.minimize(win.id))]),
+      item('close', 'Close window', null, () => session.close(win.id)),
+    );
+  } else {
+    ctx.append(
+      item('play', session.isOpen(app.id) ? 'Switch to' : 'Open', '↵', () => session.launch(app.id)),
+    );
+  }
   ctx.append(
-    meta,
-    item('play', session.isOpen(app.id) ? 'Switch to' : 'Open', '↵', () => session.launch(app.id)),
     item('plus', 'Open in new window', null, () => session.launch(app.id, true)),
     el('div', 'tb-ctx-sep'),
     item(pinned ? 'close' : 'plus', pinned ? 'Unpin from sidebar' : 'Pin to sidebar', null, () => { pins.toggle(app.id); render(); }),
@@ -320,7 +348,8 @@ const session = {
   // Focuses the app's existing window unless `fresh`; the session decides.
   launch(appId, fresh = false) { this.view = 'windows'; this.send({ t: 'launch', app: appId, new: fresh }); },
   isOpen(appId) { for (const { window: w } of this.windows.values()) if (w.app === appId) return true; return false; },
-  focusWindow(id) { this.send({ t: 'focus', id }); },
+  focusWindow(id) { this.view = 'windows'; this.send({ t: 'focus', id }); },
+  minimize(id) { this.send({ t: 'minimize', id }); },
   close(id) { this.send({ t: 'close', id }); },
 };
 
@@ -334,6 +363,8 @@ function connectSession() {
       case 'snapshot': applySnapshot(m); break;
       case 'window.opened': addWindow(m.window); session.view = 'windows'; renderWindows(); break;
       case 'window.closed': removeWindow(m.id); renderWindows(); break;
+      case 'window.minimized': { const e = session.windows.get(m.id); if (e) e.window.minimized = true; renderWindows(); break; }
+      case 'window.restored': { const e = session.windows.get(m.id); if (e) e.window.minimized = false; renderWindows(); break; }
       case 'focus': session.focus = m.id; if (m.id !== null) session.view = 'windows'; renderWindows(); break;
       case 'error': console.warn('session:', m.message); break;
     }
@@ -345,7 +376,10 @@ function applySnapshot(m) {
   // Diff against what we have: keep live frames, drop gone ones, add new.
   const keep = new Set(m.windows.map((w) => w.id));
   for (const id of [...session.windows.keys()]) if (!keep.has(id)) removeWindow(id);
-  for (const w of m.windows) if (!session.windows.has(w.id)) addWindow(w);
+  for (const w of m.windows) {
+    if (!session.windows.has(w.id)) addWindow(w);
+    else session.windows.get(w.id).window = w;
+  }
   session.focus = m.focus;
   if (session.focus === null) session.view = 'toolbox';
   renderWindows();
@@ -378,26 +412,20 @@ function renderWindows() {
   $('ws').hidden = !showWs;
   $('toolbox').hidden = showWs;
   $('nav-toolbox').classList.toggle('is-active', !showWs);
-  // Tabs are rebuilt (cheap, no state); frames are only toggled.
-  const tabs = $('ws-tabs');
-  tabs.replaceChildren();
-  for (const [id, { window: w, frame }] of session.windows) {
-    const active = id === session.focus;
-    frame.hidden = !(showWs && active);
-    const tab = el('button', 'ws-tab' + (active ? ' is-active' : ''));
-    tab.type = 'button'; tab.setAttribute('role', 'tab'); tab.setAttribute('aria-selected', String(active));
-    const app = apps.all.find((a) => a.id === w.app);
-    if (app) tab.append(glyph(app, 'xs'));
-    tab.append(el('span', 'ws-tab-title', w.title));
-    const close = el('button', 'ws-tab-close'); close.type = 'button'; close.setAttribute('aria-label', `Close ${w.title}`);
-    close.append(icon('close', 11));
-    close.addEventListener('click', (e) => { e.stopPropagation(); session.close(id); });
-    tab.append(close);
-    tab.addEventListener('click', () => { session.view = 'windows'; if (session.focus !== id) session.focusWindow(id); else renderWindows(); });
-    tab.addEventListener('auxclick', (e) => { if (e.button === 1) session.close(id); });
-    tabs.append(tab);
+  // The bar shows the focused window; frames are only toggled.
+  const focused = session.focus !== null ? session.windows.get(session.focus) : null;
+  for (const [id, { frame }] of session.windows) frame.hidden = !(showWs && id === session.focus);
+  const title = $('win-title');
+  title.replaceChildren();
+  if (focused) {
+    const app = apps.all.find((a) => a.id === focused.window.app);
+    if (app) title.append(glyph(app, 'xs'));
+    title.append(el('span', '', focused.window.title));
   }
 }
+
+$('win-close').addEventListener('click', () => { if (session.focus !== null) session.close(session.focus); });
+$('win-min').addEventListener('click', () => { if (session.focus !== null) session.minimize(session.focus); });
 
 // ---- Wire up ----------------------------------------------------------
 pins.load();

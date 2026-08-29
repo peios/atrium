@@ -57,7 +57,14 @@
     <!-- Open windows: a tab strip and one frame per window, the focused
          one visible. Hidden while the Toolbox is showing. -->
     <section class="ws" id="ws" hidden>
-      <div class="ws-tabs" id="ws-tabs" role="tablist"></div>
+      <div class="win-bar" id="win-bar">
+        <div class="win-lights">
+          <button class="win-light close" id="win-close" type="button" title="Close" aria-label="Close window"></button>
+          <button class="win-light min" id="win-min" type="button" title="Minimise" aria-label="Minimise window"></button>
+        </div>
+        <div class="win-title" id="win-title"></div>
+        <div class="win-spacer"></div>
+      </div>
       <div class="ws-frames" id="ws-frames"></div>
     </section>
     <div class="tbU" id="toolbox">

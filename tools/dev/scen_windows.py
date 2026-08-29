@@ -1,0 +1,22 @@
+print('tiles:', ev('document.querySelectorAll(".tbA-tile").length'))
+ev('[...document.querySelectorAll(".tbA-tile")].find(t=>t.dataset.id==="org.peios.about").click()'); time.sleep(1)
+print('title bar:', ev('document.getElementById("win-title").textContent'))
+# open a second About via a synthetic launch on the module's websocket: use context menu path instead
+ev('(() => { const t=[...document.querySelectorAll(".tbA-tile")].find(t=>t.dataset.id==="org.peios.about"); t.dispatchEvent(new MouseEvent("contextmenu", {bubbles:true, clientX:200, clientY:200})); })()'); time.sleep(0.3)
+print('ctx items:', ev('[...document.querySelectorAll("#ctx .tb-ctx-item")].map(b=>b.textContent.trim())'))
+ev('[...document.querySelectorAll("#ctx .tb-ctx-item")].find(b=>b.textContent.includes("new window")).click()'); time.sleep(1)
+print('title bar after new:', ev('document.getElementById("win-title").textContent'), 'frames:', ev('document.querySelectorAll("#ws-frames iframe").length'))
+print('sidebar entries:', ev('[...document.querySelectorAll("#nav-pinned .nav-item")].map(b=>b.textContent.trim()+(b.classList.contains("active")?"*":"")+(b.classList.contains("is-min")?"(min)":""))'))
+ev('document.getElementById("win-min").click()'); time.sleep(0.8)
+print('after minimise: title=', ev('document.getElementById("win-title").textContent'), 'entries=', ev('[...document.querySelectorAll("#nav-pinned .nav-item")].map(b=>b.textContent.trim()+(b.classList.contains("active")?"*":"")+(b.classList.contains("is-min")?"(min)":""))'))
+ev('[...document.querySelectorAll("#nav-pinned .nav-item")].find(b=>b.classList.contains("is-min")).click()'); time.sleep(0.8)
+print('after restore: title=', ev('document.getElementById("win-title").textContent'), 'visible frames=', ev('[...document.querySelectorAll("#ws-frames iframe")].filter(f=>!f.hidden).length'))
+ev('document.getElementById("win-close").click()'); time.sleep(0.8)
+print('after close: title=', ev('document.getElementById("win-title").textContent'), 'frames=', ev('document.querySelectorAll("#ws-frames iframe").length'), 'ws hidden=', ev('document.getElementById("ws").hidden'))
+ev('document.getElementById("win-close").click()'); time.sleep(0.8)
+print('after close 2: ws hidden=', ev('document.getElementById("ws").hidden'), 'toolbox hidden=', ev('document.getElementById("toolbox").hidden'), 'entries=', ev('[...document.querySelectorAll("#nav-pinned .nav-item, #nav-pinned .sidebar-empty")].map(b=>b.textContent.trim().slice(0,20))'))
+s.settimeout(0.5)
+try:
+    while True: note(recv(s))
+except Exception: pass
+print('\n'.join(logs) if logs else '(no console output)')

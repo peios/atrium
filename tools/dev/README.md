@@ -18,6 +18,8 @@ with curl and a browser.
   clicks About, reports DOM state and console errors. Start Chromium with
   `--headless=new --remote-debugging-port=9222` first.
 - `ffdrive.py COOKIE URL` — the same through geckodriver on :4444.
+- `CDP_SCENARIO=scen_windows.py cdp.py …` runs a scenario file instead of
+  the default click-About check (`ev`, `time`, `logs` are in scope).
 
 The last two work against the fake stack and against a running VM on
 `localhost:8080` alike; log in with curl to get the cookie
