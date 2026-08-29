@@ -33,6 +33,7 @@ use atrium_proto::{Answer, CONTROL_FD, Reply, Request, SessionMessage, read_fram
 use serde::Deserialize;
 use serde_json::json;
 
+/// `ATRIUM_LISTEN` overrides it, for a checkout whose 8080 is busy.
 const LISTEN_ADDR: &str = "0.0.0.0:8080";
 const COOKIE: &str = "atrium";
 
@@ -287,14 +288,15 @@ fn main() -> std::process::ExitCode {
     // SAFETY: atriumd placed the control socket on CONTROL_FD before exec and
     // nothing else in this process refers to it.
     let control = unsafe { UnixStream::from_raw_fd(CONTROL_FD) };
-    let listener = match TcpListener::bind(LISTEN_ADDR) {
+    let addr = std::env::var("ATRIUM_LISTEN").unwrap_or_else(|_| LISTEN_ADDR.to_string());
+    let listener = match TcpListener::bind(&addr) {
         Ok(l) => l,
         Err(e) => {
-            log::error(format_args!("listen on {LISTEN_ADDR}: {e}"));
+            log::error(format_args!("listen on {addr}: {e}"));
             return std::process::ExitCode::FAILURE;
         }
     };
-    log::info(format_args!("listening on http://{LISTEN_ADDR}"));
+    log::info(format_args!("listening on http://{addr}"));
     let state = Arc::new(State {
         control: Mutex::new(control),
         cookies: Mutex::new(HashMap::new()),
