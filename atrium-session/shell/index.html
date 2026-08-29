@@ -36,20 +36,7 @@
 
   <nav id="dock">
     <button class="dock-item active" title="Toolbox"><span class="tile grid"></span></button>
-    <div class="dock-group">
-      <button class="dock-item" title="Dashboard"><span class="tile c1"></span></button>
-      <button class="dock-item" title="Events"><span class="tile c2"></span></button>
-      <button class="dock-item" title="Terminal"><span class="tile c3"></span></button>
-    </div>
-    <div class="dock-group">
-      <button class="dock-item" title="Principals"><span class="tile c4"></span></button>
-      <button class="dock-item" title="Policies"><span class="tile c4"></span></button>
-    </div>
-    <div class="dock-group">
-      <button class="dock-item" title="Networking"><span class="tile c5"></span></button>
-      <button class="dock-item" title="Storage"><span class="tile c6"></span></button>
-      <button class="dock-item" title="Services"><span class="tile c6"></span></button>
-    </div>
+    <div class="dock-group" id="pinned"></div>
   </nav>
 
   <main id="workspace">
@@ -58,12 +45,12 @@
         <div class="toolbox-head">
           <div>
             <h1>Toolbox</h1>
-            <p class="sub">0 applets across 0 applications · right-click any applet to pin it to the sidebar</p>
+            <p class="sub" id="toolbox-sub">No apps installed</p>
           </div>
           <div class="seg"><button class="on">▦ Grid</button><button>☰ Browse</button></div>
         </div>
-        <div class="toolbox-search"><span class="glyph">⌕</span><span class="hint">What do you need? Try "dns", "backup", "tailscale acl"…</span></div>
-        <div class="chips"><span class="chip">◇ Pinned · 0</span><span class="chip">⊙ Debug</span><span class="count">0 shown</span></div>
+        <label class="toolbox-search"><span class="glyph">⌕</span><input id="filter" type="search" placeholder="What do you need? Try &quot;dns&quot;, &quot;services&quot;, &quot;terminal&quot;…" autocomplete="off"></label>
+        <div class="chips"><span class="chip" id="chip-pinned">◇ Pinned · 0</span><span class="count" id="shown">0 shown</span></div>
       </div>
       <div id="apps"></div>
     </section>

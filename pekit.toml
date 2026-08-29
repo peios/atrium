@@ -58,6 +58,13 @@ install -m 0755 "$PEKIT_OUT/target/release/atriumd" "$PEKIT_OUT/usr/sbin/atriumd
 install -m 0755 "$PEKIT_OUT/target/release/atrium-server" "$PEKIT_OUT/usr/libexec/atrium/atrium-server"
 install -m 0755 "$PEKIT_OUT/target/release/atrium-session" "$PEKIT_OUT/usr/libexec/atrium/atrium-session"
 
+# The first-party apps: one directory per app under the catalogue root
+# atrium-session scans. Placeholders until each grows behaviour.
+mkdir -p "$PEKIT_OUT/usr/share/atrium/apps"
+cp -R "$SRC/apps/." "$PEKIT_OUT/usr/share/atrium/apps/"
+find "$PEKIT_OUT/usr/share/atrium/apps" -type f -exec chmod 0644 {} +
+find "$PEKIT_OUT/usr/share/atrium/apps" -type d -exec chmod 0755 {} +
+
 # Seeds are offered, not applied: an image opts in with [registry] autoapply.
 mkdir -p "$PEKIT_OUT/usr/share/regim"
 install -m 0644 "$SRC/registry.d/atriumd-service.reg" "$PEKIT_OUT/usr/share/regim/atriumd-service.reg"

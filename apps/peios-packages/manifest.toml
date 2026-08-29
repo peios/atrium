@@ -1,0 +1,6 @@
+id = "peios-packages"
+name = "Packages"
+description = "Installed software, repositories, upgrades."
+category = "Peios"
+color = "#22c55e"
+entry = "index.html"

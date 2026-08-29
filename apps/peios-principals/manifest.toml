@@ -1,0 +1,6 @@
+id = "peios-principals"
+name = "Principals"
+description = "Every user, group, service and machine."
+category = "Peios"
+color = "#a855f7"
+entry = "index.html"

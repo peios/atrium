@@ -1,0 +1,6 @@
+id = "peios-registry"
+name = "Registry"
+description = "Layered configuration: base, local, overlays."
+category = "Peios"
+color = "#3b82f6"
+entry = "index.html"

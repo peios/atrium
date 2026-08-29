@@ -6,28 +6,6 @@
 // Everything real — the state mirror, the window tree, launching — arrives
 // section by section.
 
-const PLACEHOLDER = [
-  { name: 'Peios', kind: 'FIRST-PARTY', desc: 'The platform itself', color: '#2f6fed', applets: [
-    ['Dashboard', 'Machine status, alerts, at-a-glance health.', '#3b82f6'],
-    ['Events', 'Audit log, kernel events, security trail.', '#3b82f6'],
-    ['Updates', 'OS and app update channels, staged rollouts.', '#3b82f6'],
-    ['Settings', 'Machine settings, time, locale.', '#3b82f6'],
-    ['Terminal', 'Tabbed shell with splits and per-tab broadcast.', '#3b82f6'],
-    ['Principals', 'Every user, group, service and machine.', '#a855f7'],
-    ['Policies', 'Access policies, RBAC, conditional access.', '#a855f7'],
-    ['Services', 'Long-running services: status, restart, logs.', '#22c55e'],
-    ['Networking', 'Interfaces, routes, firewall, NAT.', '#06b6d4'],
-    ['Registry', 'Layered configuration: base, local, overlays.', '#3b82f6'],
-    ['Storage', 'Pools, volumes, SMART summaries.', '#22c55e'],
-    ['Packages', 'Installed software, repositories, upgrades.', '#22c55e'],
-  ]},
-  { name: 'File Server', kind: 'APP', desc: 'SMB, NFS and FTP file sharing', color: '#f97316', ver: 'v0.0.0', applets: [
-    ['Shares', 'Exported shares and who may see them.', '#f97316'],
-    ['Files', 'Browse and manage files on this machine.', '#f97316'],
-    ['Sessions', 'Open connections and locks.', '#f97316'],
-  ]},
-];
-
 const el = (tag, cls, text) => {
   const e = document.createElement(tag);
   if (cls) e.className = cls;
@@ -35,24 +13,85 @@ const el = (tag, cls, text) => {
   return e;
 };
 
-function renderApps(root, apps) {
-  root.replaceChildren();
-  for (const app of apps) {
-    const section = el('section', 'app-section');
-    const head = el('div', 'app-head');
-    const swatch = el('span', 'swatch'); swatch.style.background = app.color;
-    head.append(swatch, el('span', 'name', app.name), el('span', 'kind', app.kind), el('span', 'desc', app.desc));
-    if (app.ver) head.append(el('span', 'ver', app.ver));
-    const cards = el('div', 'cards');
-    for (const [title, blurb, color] of app.applets) {
-      const card = el('div', 'card');
-      const icon = el('div', 'icon', '▣'); icon.style.background = color;
-      card.append(icon, el('div', 'title', title), el('div', 'blurb', blurb));
-      cards.append(card);
-    }
-    section.append(head, cards);
-    root.append(section);
+// The catalogue: what the session found installed. Flat — grouping is a
+// category string the shell may use later, not structure.
+const apps = { all: [], filter: '' };
+
+// Pins: which apps sit in the dock. Per browser for now (localStorage);
+// they move into the session's state once the state mirror exists.
+const pins = {
+  KEY: 'atrium.pins',
+  ids: [],
+  load() { try { this.ids = JSON.parse(localStorage.getItem(this.KEY) || '[]'); } catch { this.ids = []; } },
+  save() { try { localStorage.setItem(this.KEY, JSON.stringify(this.ids)); } catch {} },
+  has(id) { return this.ids.includes(id); },
+  toggle(id) { this.has(id) ? this.ids = this.ids.filter((x) => x !== id) : this.ids.push(id); this.save(); },
+};
+
+function iconFor(app, cls) {
+  const icon = el('div', cls);
+  if (app.icon) {
+    const img = document.createElement('img'); img.src = app.icon; img.alt = '';
+    icon.append(img);
+  } else {
+    icon.textContent = app.name.slice(0, 1).toUpperCase();
+    icon.style.background = app.color || 'var(--accent)';
   }
+  return icon;
+}
+
+function matches(app, q) {
+  if (!q) return true;
+  const hay = `${app.name} ${app.description} ${app.category || ''} ${app.id}`.toLowerCase();
+  return q.split(/\s+/).filter(Boolean).every((w) => hay.includes(w));
+}
+
+function renderGrid() {
+  const root = $('apps');
+  root.replaceChildren();
+  const shown = apps.all.filter((a) => matches(a, apps.filter.toLowerCase()));
+  const cards = el('div', 'cards');
+  for (const app of shown) {
+    const card = el('div', 'card' + (pins.has(app.id) ? ' pinned' : ''));
+    card.dataset.id = app.id;
+    card.title = app.category ? `${app.name} · ${app.category}` : app.name;
+    card.append(iconFor(app, 'icon'), el('div', 'title', app.name), el('div', 'blurb', app.description));
+    card.addEventListener('contextmenu', (e) => { e.preventDefault(); pins.toggle(app.id); renderGrid(); renderDock(); });
+    cards.append(card);
+  }
+  if (shown.length) root.append(cards);
+  else root.append(el('div', 'empty-note', apps.all.length ? 'Nothing matches.' : 'No apps are installed. Packages ship them under /usr/share/atrium/apps.'));
+  $('shown').textContent = `${shown.length} shown`;
+  const cats = new Set(apps.all.map((a) => a.category).filter(Boolean));
+  $('toolbox-sub').textContent = apps.all.length
+    ? `${apps.all.length} app${apps.all.length === 1 ? '' : 's'}${cats.size ? ` across ${cats.size} categor${cats.size === 1 ? 'y' : 'ies'}` : ''} · right-click an app to pin it to the dock`
+    : 'No apps installed';
+  $('chip-pinned').textContent = `◇ Pinned · ${pins.ids.length}`;
+}
+
+function renderDock() {
+  const root = $('pinned');
+  root.replaceChildren();
+  const byId = new Map(apps.all.map((a) => [a.id, a]));
+  for (const id of pins.ids) {
+    const app = byId.get(id);
+    if (!app) continue;
+    const b = el('button', 'dock-item');
+    b.title = app.name;
+    b.append(iconFor(app, 'tile'));
+    b.addEventListener('contextmenu', (e) => { e.preventDefault(); pins.toggle(id); renderGrid(); renderDock(); });
+    root.append(b);
+  }
+  root.hidden = pins.ids.length === 0;
+}
+
+async function loadApps() {
+  try {
+    const r = await fetch('/api/apps');
+    apps.all = r.ok ? await r.json() : [];
+  } catch { apps.all = []; }
+  renderGrid();
+  renderDock();
 }
 
 const $ = (id) => document.getElementById(id);
@@ -112,7 +151,12 @@ function theme() {
   });
 }
 
-renderApps($('apps'), PLACEHOLDER);
+pins.load();
+$('filter').addEventListener('input', (e) => { apps.filter = e.target.value; renderGrid(); });
+document.addEventListener('keydown', (e) => {
+  if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') { e.preventDefault(); $('filter').focus(); $('filter').select(); }
+});
+loadApps();
 menu($('avatar'), $('profile-menu'));
 theme();
 whoami();

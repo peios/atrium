@@ -1,0 +1,6 @@
+id = "peios-about"
+name = "About"
+description = "This machine: version, kernel, uptime."
+category = "Peios"
+color = "#2f6fed"
+entry = "index.html"

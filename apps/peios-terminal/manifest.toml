@@ -1,0 +1,6 @@
+id = "peios-terminal"
+name = "Terminal"
+description = "Tabbed shell with splits and per-tab broadcast."
+category = "Peios"
+color = "#3b82f6"
+entry = "index.html"

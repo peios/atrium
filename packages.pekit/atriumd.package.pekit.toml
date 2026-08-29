@@ -13,5 +13,7 @@ description = "Peios web session host - the browser-delivered session, on port 8
 ":usr/sbin/atriumd" = "usr/sbin/atriumd"
 ":usr/libexec/atrium/atrium-server" = "usr/libexec/atrium/atrium-server"
 ":usr/libexec/atrium/atrium-session" = "usr/libexec/atrium/atrium-session"
+# The first-party app catalogue entries (placeholders for now).
+":usr/share/atrium/apps/**" = "usr/share/atrium/apps"
 # The service definition. Inert until an image names it in [registry] autoapply.
 ":usr/share/regim/atriumd-service.reg" = "usr/share/regim/atriumd-service.reg"

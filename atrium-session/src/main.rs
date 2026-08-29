@@ -11,6 +11,8 @@
 //! into the binary, and answers the shell's API. Slice 4: the chrome is
 //! lifeless; behaviour arrives section by section.
 
+mod apps;
+
 use std::io::Write;
 use std::os::fd::FromRawFd;
 use std::os::unix::net::UnixStream;
@@ -57,6 +59,14 @@ fn serve(mut conn: UnixStream, id: &Identity) {
             "browser_session": req.header("x-atrium-browser-session"),
         })),
         ("GET", "/") => asset(SHELL_HTML, "text/html; charset=utf-8"),
+        ("GET", "/api/apps") => Response::json(&serde_json::to_value(apps::catalogue()).unwrap_or_default()),
+        ("GET", p) if p.starts_with("/apps/") => match apps::resolve(p) {
+            Some(file) => match std::fs::read(&file) {
+                Ok(body) => Response { status: 200, reason: "OK", content_type: apps::content_type(&file), extra_headers: vec![], body },
+                Err(_) => Response::status(404, "Not Found"),
+            },
+            None => Response::status(404, "Not Found"),
+        },
         ("GET", "/shell/shell.css") => asset(SHELL_CSS, "text/css; charset=utf-8"),
         ("GET", "/shell/shell.js") => asset(SHELL_JS, "text/javascript; charset=utf-8"),
         _ => Response::status(404, "Not Found"),

@@ -1,0 +1,6 @@
+id = "peios-services"
+name = "Services"
+description = "Long-running services: status, restart, logs."
+category = "Peios"
+color = "#22c55e"
+entry = "index.html"

@@ -1,0 +1,6 @@
+id = "peios-events"
+name = "Events"
+description = "Audit log, kernel events, security trail."
+category = "Peios"
+color = "#3b82f6"
+entry = "index.html"
