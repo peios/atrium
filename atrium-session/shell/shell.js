@@ -59,25 +59,29 @@ function menu(button, panel) {
 }
 
 // ---- Theme ------------------------------------------------------------
-// Per browser, remembered. Light, dark, or follow the system, cycled by
-// the button; the root attribute is what the CSS reads.
+// Per browser, remembered. The button flips whatever is showing: the
+// three-state cycle (light, dark, system) reads as a dead click whenever
+// "system" happens to equal the state before it. Following the system is
+// the default until the button is first used; making it choosable again
+// belongs in Settings.
 function theme() {
   const KEY = 'atrium.theme';
-  const dark = () => document.documentElement.dataset.theme === 'dark'
+  const showingDark = () => document.documentElement.dataset.theme === 'dark'
     || (!document.documentElement.dataset.theme && matchMedia('(prefers-color-scheme: dark)').matches);
   const apply = (t) => {
     if (t === 'light' || t === 'dark') document.documentElement.dataset.theme = t;
     else delete document.documentElement.dataset.theme;
-    $('theme').title = 'Theme: ' + (t || 'system');
-    $('theme').replaceChildren(icon(dark() ? 'sun' : 'moon'));
+    $('theme').title = showingDark() ? 'Switch to light' : 'Switch to dark';
+    $('theme').replaceChildren(icon(showingDark() ? 'sun' : 'moon'));
   };
-  let current = null;
-  try { current = localStorage.getItem(KEY); } catch {}
-  apply(current);
+  let stored = null;
+  try { stored = localStorage.getItem(KEY); } catch {}
+  apply(stored);
+  matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => apply(document.documentElement.dataset.theme || null));
   $('theme').addEventListener('click', () => {
-    current = current === 'light' ? 'dark' : current === 'dark' ? null : 'light';
-    try { current ? localStorage.setItem(KEY, current) : localStorage.removeItem(KEY); } catch {}
-    apply(current);
+    const next = showingDark() ? 'light' : 'dark';
+    try { localStorage.setItem(KEY, next); } catch {}
+    apply(next);
   });
 }
 
