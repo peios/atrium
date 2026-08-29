@@ -16,5 +16,8 @@ atrium-proto = { path = "../atrium-proto" }
 peios = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+# The websocket accept key (RFC 6455 §4.2.2). Pure computation; authd and
+# peinit carry the same dependency.
+sha1 = "0.10"
 # App manifests. Pure parsing, no I/O.
 toml = "0.9"

@@ -8,10 +8,12 @@
 //! "Accept" here means "receive a descriptor".
 //!
 //! It serves the shell — the chrome the user lives in — from files built
-//! into the binary, and answers the shell's API. Slice 4: the chrome is
-//! lifeless; behaviour arrives section by section.
+//! into the binary, answers the shell's API, and holds the session's state
+//! (`state`), which every connected shell mirrors over a websocket.
 
 mod apps;
+mod state;
+mod ws;
 
 use std::io::Write;
 use std::os::fd::FromRawFd;
@@ -43,11 +45,21 @@ fn identity() -> Identity {
     Identity { user_sid, logon_session }
 }
 
-fn serve(mut conn: UnixStream, id: &Identity) {
+fn serve(mut conn: UnixStream, id: &Identity, state: &state::Shared) {
     let Some(req) = read_request(&mut conn) else {
         write_response(&mut conn, &Response::status(400, "Bad Request"));
         return;
     };
+    if req.method == "GET" && req.path == "/ws" {
+        if !ws::is_upgrade(&req) {
+            write_response(&mut conn, &Response::status(426, "Upgrade Required"));
+            return;
+        }
+        if ws::accept(&mut conn, &req).is_ok() {
+            state::serve(state, conn);
+        }
+        return;
+    }
     let resp = match (req.method.as_str(), req.path.as_str()) {
         ("GET", "/api/whoami") => Response::json(&json!({
             "user": std::env::var("USER").unwrap_or_default(),
@@ -82,6 +94,7 @@ fn main() -> std::process::ExitCode {
     // in this process refers to it.
     let control = unsafe { UnixStream::from_raw_fd(CONTROL_FD) };
     let id = identity();
+    let state: state::Shared = Default::default();
     eprintln!("atrium-session: running as {} in logon session {} (pid {})", id.user_sid, id.logon_session, std::process::id());
     loop {
         let (msg, fd): (SessionMessage, _) = match read_frame_fd(&control) {
@@ -103,6 +116,7 @@ fn main() -> std::process::ExitCode {
         };
         let conn = UnixStream::from(fd);
         let id = Identity { user_sid: id.user_sid.clone(), logon_session: id.logon_session.clone() };
-        std::thread::spawn(move || serve(conn, &id));
+        let state = std::sync::Arc::clone(&state);
+        std::thread::spawn(move || serve(conn, &id, &state));
     }
 }

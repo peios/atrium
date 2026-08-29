@@ -1,4 +1,4 @@
-id = "peios-packages"
+id = "org.peios.packages"
 name = "Packages"
 description = "Installed software, repositories, upgrades."
 category = "Peios"

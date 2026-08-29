@@ -1,4 +1,4 @@
-id = "peios-about"
+id = "org.peios.about"
 name = "About"
 description = "This machine: version, kernel, uptime."
 category = "Peios"

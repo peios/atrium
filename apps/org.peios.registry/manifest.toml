@@ -1,4 +1,4 @@
-id = "peios-registry"
+id = "org.peios.registry"
 name = "Registry"
 description = "Layered configuration: base, local, overlays."
 category = "Peios"

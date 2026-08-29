@@ -1,4 +1,4 @@
-id = "peios-networking"
+id = "org.peios.networking"
 name = "Networking"
 description = "Interfaces, routes, addresses, DNS."
 category = "Peios"

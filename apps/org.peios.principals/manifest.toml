@@ -1,4 +1,4 @@
-id = "peios-principals"
+id = "org.peios.principals"
 name = "Principals"
 description = "Every user, group, service and machine."
 category = "Peios"

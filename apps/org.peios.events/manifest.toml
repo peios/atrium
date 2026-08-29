@@ -1,4 +1,4 @@
-id = "peios-events"
+id = "org.peios.events"
 name = "Events"
 description = "Audit log, kernel events, security trail."
 category = "Peios"

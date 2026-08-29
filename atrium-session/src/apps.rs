@@ -1,6 +1,6 @@
 //! The app catalogue: what is installed, read from the filesystem.
 //!
-//! An app is a directory `/usr/share/atrium/apps/<id>/` holding a
+//! An app is a directory `/usr/share/atrium/apps/<id>/` (reverse-DNS id) holding a
 //! `manifest.toml` and whatever static files its entry needs. Every
 //! launchable thing is one app — no nesting; grouping in the launcher is a
 //! `category` string, not structure. Packages ship these directories;
@@ -59,12 +59,15 @@ pub fn dir() -> PathBuf {
     std::env::var_os("ATRIUM_APPS_DIR").map(PathBuf::from).unwrap_or_else(|| PathBuf::from(APPS_DIR))
 }
 
-/// A directory name that is safe to use as an id and in a URL.
+/// A directory name that is safe to use as an id and in a URL. Ids are
+/// reverse-DNS (`org.peios.about`); the directory is the id.
 fn valid_id(id: &str) -> bool {
     !id.is_empty()
         && id.len() <= 64
-        && id.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
-        && !id.starts_with('-')
+        && id.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-' || b == b'.')
+        && !id.starts_with(['-', '.'])
+        && !id.ends_with('.')
+        && !id.contains("..")
 }
 
 pub fn catalogue() -> Vec<App> {

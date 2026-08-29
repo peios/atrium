@@ -54,7 +54,13 @@
   </nav>
 
   <main class="main" id="main">
-    <div class="tbU">
+    <!-- Open windows: a tab strip and one frame per window, the focused
+         one visible. Hidden while the Toolbox is showing. -->
+    <section class="ws" id="ws" hidden>
+      <div class="ws-tabs" id="ws-tabs" role="tablist"></div>
+      <div class="ws-frames" id="ws-frames"></div>
+    </section>
+    <div class="tbU" id="toolbox">
       <div class="tbU-header">
         <div class="tbU-titlebar">
           <div>

@@ -1,4 +1,4 @@
-id = "peios-terminal"
+id = "org.peios.terminal"
 name = "Terminal"
 description = "Tabbed shell with splits and per-tab broadcast."
 category = "Peios"

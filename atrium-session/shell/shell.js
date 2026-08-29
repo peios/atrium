@@ -162,7 +162,7 @@ function renderGrid() {
       const tile = el('button', 'tbA-tile');
       tile.type = 'button';
       tile.dataset.id = app.id;
-      tile.title = 'Right-click to pin';
+      tile.title = 'Open — right-click to pin';
       if (pins.has(app.id)) {
         const pc = el('span', 'pin-corner'); pc.title = 'Pinned'; pc.append(icon('check', 11));
         tile.append(pc);
@@ -176,6 +176,7 @@ function renderGrid() {
         openCtx(app, r.right - 8, r.bottom + 4);
       });
       tile.append(more, glyph(app, 'lg'), el('div', 'name', app.name), el('div', 'summary', app.description));
+      tile.addEventListener('click', () => session.launch(app.id));
       tile.addEventListener('contextmenu', (e) => { e.preventDefault(); openCtx(app, e.clientX, e.clientY); });
       grid.append(tile);
     }
@@ -221,6 +222,7 @@ function renderSidebar() {
       const b = el('button', 'nav-item'); b.type = 'button';
       b.title = `${app.name} — right-click to unpin`;
       b.append(glyph(app, 'xs'), el('span', 'nav-label', app.name));
+      b.addEventListener('click', () => session.launch(app.id));
       b.addEventListener('contextmenu', (e) => { e.preventDefault(); openCtx(app, e.clientX, e.clientY); });
       g.append(b);
     }
@@ -246,7 +248,7 @@ function openCtx(app, x, y) {
   const pinned = pins.has(app.id);
   ctx.append(
     meta,
-    item('play', 'Open', '↵', null, true),
+    item('play', 'Open', '↵', () => session.launch(app.id)),
     el('div', 'tb-ctx-sep'),
     item(pinned ? 'close' : 'plus', pinned ? 'Unpin from sidebar' : 'Pin to sidebar', null, () => { pins.toggle(app.id); render(); }),
     item('info', 'About this app…', null, null, true),
@@ -287,6 +289,94 @@ function cmdk() {
   });
 }
 
+// ---- Session mirror ---------------------------------------------------
+// The session owns the windows; every tab is a mirror of them. On connect
+// we get a snapshot, then events. Frames are created once per window and
+// only ever shown/hidden — re-parenting an iframe reloads the app.
+const session = {
+  sock: null,
+  windows: new Map(),   // id -> { window, tab, frame }
+  focus: null,
+  view: 'toolbox',      // this tab's choice: 'toolbox' | 'windows'
+  send(msg) { if (this.sock && this.sock.readyState === 1) this.sock.send(JSON.stringify(msg)); },
+  launch(appId) { this.send({ t: 'launch', app: appId }); },
+  focusWindow(id) { this.send({ t: 'focus', id }); },
+  close(id) { this.send({ t: 'close', id }); },
+};
+
+function connectSession() {
+  const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+  const sock = new WebSocket(`${proto}://${location.host}/ws`);
+  session.sock = sock;
+  sock.addEventListener('message', (e) => {
+    let m; try { m = JSON.parse(e.data); } catch { return; }
+    switch (m.t) {
+      case 'snapshot': applySnapshot(m); break;
+      case 'window.opened': addWindow(m.window); session.view = 'windows'; renderWindows(); break;
+      case 'window.closed': removeWindow(m.id); renderWindows(); break;
+      case 'focus': session.focus = m.id; if (m.id !== null) session.view = 'windows'; renderWindows(); break;
+      case 'error': console.warn('session:', m.message); break;
+    }
+  });
+  sock.addEventListener('close', () => { session.sock = null; setTimeout(connectSession, 1500); });
+}
+
+function applySnapshot(m) {
+  // Diff against what we have: keep live frames, drop gone ones, add new.
+  const keep = new Set(m.windows.map((w) => w.id));
+  for (const id of [...session.windows.keys()]) if (!keep.has(id)) removeWindow(id);
+  for (const w of m.windows) if (!session.windows.has(w.id)) addWindow(w);
+  session.focus = m.focus;
+  if (session.focus === null) session.view = 'toolbox';
+  renderWindows();
+}
+
+function addWindow(w) {
+  const frame = document.createElement('iframe');
+  frame.src = w.url;
+  frame.title = w.title;
+  frame.dataset.id = w.id;
+  frame.hidden = true;
+  $('ws-frames').append(frame);
+  session.windows.set(w.id, { window: w, frame });
+}
+
+function removeWindow(id) {
+  const entry = session.windows.get(id);
+  if (!entry) return;
+  entry.frame.remove();
+  session.windows.delete(id);
+}
+
+function showToolbox() { session.view = 'toolbox'; renderWindows(); }
+
+function renderWindows() {
+  const haveWindows = session.windows.size > 0;
+  const showWs = session.view === 'windows' && haveWindows;
+  $('ws').hidden = !showWs;
+  $('toolbox').hidden = showWs;
+  $('nav-toolbox').classList.toggle('is-active', !showWs);
+  // Tabs are rebuilt (cheap, no state); frames are only toggled.
+  const tabs = $('ws-tabs');
+  tabs.replaceChildren();
+  for (const [id, { window: w, frame }] of session.windows) {
+    const active = id === session.focus;
+    frame.hidden = !(showWs && active);
+    const tab = el('button', 'ws-tab' + (active ? ' is-active' : ''));
+    tab.type = 'button'; tab.setAttribute('role', 'tab'); tab.setAttribute('aria-selected', String(active));
+    const app = apps.all.find((a) => a.id === w.app);
+    if (app) tab.append(glyph(app, 'xs'));
+    tab.append(el('span', 'ws-tab-title', w.title));
+    const close = el('button', 'ws-tab-close'); close.type = 'button'; close.setAttribute('aria-label', `Close ${w.title}`);
+    close.append(icon('close', 11));
+    close.addEventListener('click', (e) => { e.stopPropagation(); session.close(id); });
+    tab.append(close);
+    tab.addEventListener('click', () => { session.view = 'windows'; if (session.focus !== id) session.focusWindow(id); else renderWindows(); });
+    tab.addEventListener('auxclick', (e) => { if (e.button === 1) session.close(id); });
+    tabs.append(tab);
+  }
+}
+
 // ---- Wire up ----------------------------------------------------------
 pins.load();
 $('filter').addEventListener('input', (e) => { apps.filter = e.target.value; renderGrid(); });
@@ -296,5 +386,6 @@ menu($('avatar'), $('profile-menu'));
 theme();
 sidebar();
 cmdk();
-loadApps();
+$('nav-toolbox').addEventListener('click', showToolbox);
+loadApps().then(connectSession);
 whoami();
