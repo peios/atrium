@@ -1,0 +1,16 @@
+[package]
+name = "atrium-server"
+description = "The network-facing half of Atrium: HTTP, the login page, cookies. Runs unprivileged."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "atrium-server"
+path = "src/main.rs"
+
+[dependencies]
+atrium-proto = { path = "../atrium-proto" }
+serde = { workspace = true }
+serde_json = { workspace = true }

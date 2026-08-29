@@ -1,22 +1,30 @@
 //! atriumd — the Peios web session host.
 //!
-//! Slice 1: a TCP listener on 0.0.0.0:8080 answering every HTTP request with
-//! one page. No dependencies: the HTTP handling is the minimum needed to make
-//! a browser render a body, and it is replaced wholesale when the daemon
-//! grows a real server. What is meant to last from this slice is the shape —
-//! a peinit service, Notify readiness, kmsg-mirrored logging, and packaging.
+//! The one privileged process in Atrium, and deliberately the smallest. It
+//! runs as SYSTEM because that is what originating a logon takes today
+//! (`/run/logon.sock` admits SYSTEM alone), and everything it does is on the
+//! far side of that fact:
+//!
+//!   * spawn `atrium-server`, the network-facing half, under a token with
+//!     every privilege deleted, joined to us by one socketpair;
+//!   * on the server's behalf, hold logon conversations with the authority
+//!     (PGSS Logon) and keep the resulting tokens in a session table;
+//!   * eventually, ask peinit to start one `atrium-session` per logon as that
+//!     principal. That step waits on peinit's jobs API; today a session is a
+//!     held token and a log line.
+//!
+//! It never parses HTTP and never impersonates. If a feature seems to need
+//! adding here, it belongs in the server or the session host.
 
 mod log;
+mod logon;
+mod spawn;
 
-use std::io::{Read, Write};
-use std::net::{TcpListener, TcpStream};
+use std::io::ErrorKind;
 use std::os::unix::net::UnixDatagram;
 use std::process::ExitCode;
-use std::time::Duration;
 
-const LISTEN_ADDR: &str = "0.0.0.0:8080";
-
-const PAGE: &str = "<!doctype html>\n<html><head><meta charset=\"utf-8\"><title>Atrium</title></head>\n<body><h1>Hello World</h1></body></html>\n";
+use atrium_proto::{Reply, Request, read_frame, write_frame};
 
 fn notify_ready() {
     let Ok(path) = std::env::var("NOTIFY_SOCKET") else { return };
@@ -30,49 +38,51 @@ fn notify_ready() {
     }
 }
 
-/// Consume the request head (up to the blank line, or 8 KiB, or a second of
-/// silence) and answer with the page. Whatever the request was.
-fn serve(mut stream: TcpStream) {
-    let _ = stream.set_read_timeout(Some(Duration::from_secs(1)));
-    let _ = stream.set_write_timeout(Some(Duration::from_secs(5)));
-    let mut head = Vec::with_capacity(1024);
-    let mut buf = [0u8; 1024];
-    loop {
-        match stream.read(&mut buf) {
-            Ok(0) => break,
-            Ok(n) => {
-                head.extend_from_slice(&buf[..n]);
-                if head.windows(4).any(|w| w == b"\r\n\r\n") || head.len() >= 8192 {
-                    break;
-                }
-            }
-            Err(_) => break,
-        }
-    }
-    let response = format!(
-        "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
-        PAGE.len(),
-        PAGE
-    );
-    let _ = stream.write_all(response.as_bytes());
-    let _ = stream.flush();
-}
-
 fn main() -> ExitCode {
-    let listener = match TcpListener::bind(LISTEN_ADDR) {
-        Ok(l) => l,
+    // `--unrestricted` skips the token work, for a host without KACS. It is
+    // a development switch and the log says so every time.
+    let unrestricted = std::env::args().any(|a| a == "--unrestricted");
+    if unrestricted {
+        log::warn(format_args!("--unrestricted: atrium-server runs with this process's own token"));
+    }
+
+    let mut server = match spawn::spawn(unrestricted) {
+        Ok(s) => s,
         Err(e) => {
-            log::error(format_args!("listen on {LISTEN_ADDR}: {e}"));
+            log::error(format_args!("could not start atrium-server: {e}"));
             return ExitCode::FAILURE;
         }
     };
-    log::info(format_args!("listening on http://{LISTEN_ADDR}"));
     notify_ready();
-    for conn in listener.incoming() {
-        match conn {
-            Ok(stream) => serve(stream),
-            Err(e) => log::warn(format_args!("accept: {e}")),
+
+    let mut logon = logon::Logon::default();
+    loop {
+        let request: Request = match read_frame(&mut server.control) {
+            Ok(r) => r,
+            Err(e) if e.kind() == ErrorKind::UnexpectedEof => {
+                // The server is gone; so is every cookie it held. Exit and
+                // let peinit restart the pair — sessions do not survive this
+                // today, by decision.
+                log::error(format_args!("atrium-server exited: {}", spawn::reap(server.pid)));
+                return ExitCode::FAILURE;
+            }
+            Err(e) => {
+                log::error(format_args!("control socket: {e}"));
+                return ExitCode::FAILURE;
+            }
+        };
+        let reply = match request {
+            Request::LogonStart { conv, username, remote } => logon.start(conv, username, remote),
+            Request::LogonAnswer { conv, answers } => logon.answer(conv, answers),
+            Request::LogonAbort { conv } => logon.abort(conv),
+            Request::Logout { session } => logon.logout(session),
+        };
+        if let Reply::Error { reason, .. } = &reply {
+            log::warn(format_args!("logon step failed: {reason}"));
+        }
+        if let Err(e) = write_frame(&mut server.control, &reply) {
+            log::error(format_args!("control socket: {e}"));
+            return ExitCode::FAILURE;
         }
     }
-    ExitCode::SUCCESS
 }

@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Atrium</title>
+<style>
+  :root { color-scheme: light dark; font-family: system-ui, sans-serif; }
+  body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: Canvas; color: CanvasText; }
+  form { width: min(22rem, 90vw); display: grid; gap: .75rem; }
+  h1 { font-weight: 500; margin: 0 0 .5rem; }
+  label { display: grid; gap: .25rem; font-size: .9rem; }
+  input { font: inherit; padding: .5rem .6rem; border: 1px solid GrayText; border-radius: .3rem; background: Field; color: FieldText; }
+  button { font: inherit; padding: .55rem; border: 0; border-radius: .3rem; background: Highlight; color: HighlightText; cursor: pointer; }
+  button:disabled { opacity: .6; cursor: default; }
+  .msg { font-size: .9rem; }
+  .msg.error { color: #c0392b; }
+  .msg.warning { color: #b9770e; }
+</style>
+</head>
+<body>
+<form id="f" autocomplete="on">
+  <h1>Atrium</h1>
+  <div id="messages"></div>
+  <div id="fields"></div>
+  <button id="go" type="submit">Continue</button>
+</form>
+<script>
+// The login page renders whatever the authority asks for. It starts with a
+// username (the one thing a logon needs before the authority is involved,
+// PGSS Logon §7), then loops: post answers, render the next prompts, until
+// it is granted or denied. It never assumes a password is what comes next.
+(() => {
+  const f = document.getElementById('f');
+  const fields = document.getElementById('fields');
+  const messages = document.getElementById('messages');
+  const go = document.getElementById('go');
+  let conv = null;
+
+  const field = (name, type, key, autocomplete) => {
+    const l = document.createElement('label');
+    l.textContent = name;
+    const i = document.createElement('input');
+    i.type = type; i.name = key; i.required = true; i.autocomplete = autocomplete;
+    l.appendChild(i);
+    return l;
+  };
+  const note = (severity, text) => {
+    const d = document.createElement('div');
+    d.className = 'msg ' + severity; d.textContent = text;
+    messages.appendChild(d);
+  };
+  const usernameStep = () => {
+    conv = null;
+    fields.replaceChildren(field('Username', 'text', 'username', 'username'));
+    fields.querySelector('input').focus();
+  };
+  const promptStep = (r) => {
+    fields.replaceChildren();
+    for (const p of r.prompts) {
+      const type = p.credential_type === 'password' ? 'password' : 'text';
+      fields.appendChild(field(p.name, type, 'cred:' + p.credential_ref, type === 'password' ? 'current-password' : 'on'));
+    }
+    for (const m of r.messages) note(m.severity, m.text);
+    const first = fields.querySelector('input'); if (first) first.focus();
+  };
+  const post = async (path, body) => {
+    const res = await fetch(path, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+    if (!res.ok) throw new Error(await res.text());
+    return res.json();
+  };
+  const handle = (r) => {
+    if (r.type === 'prompt') { conv = r.conv; promptStep(r); }
+    else if (r.type === 'granted') { location.replace('/'); }
+    else if (r.type === 'denied') { note('error', r.reason); usernameStep(); }
+    else { note('error', r.reason || 'Something went wrong'); usernameStep(); }
+  };
+
+  f.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    messages.replaceChildren();
+    go.disabled = true;
+    try {
+      const data = new FormData(f);
+      if (conv === null) {
+        handle(await post('/api/logon/start', { username: data.get('username') }));
+      } else {
+        const answers = [];
+        for (const [k, v] of data.entries()) if (k.startsWith('cred:')) answers.push({ credential_ref: Number(k.slice(5)), data: v });
+        handle(await post('/api/logon/answer', { conv, answers }));
+      }
+    } catch (err) {
+      note('error', String(err.message || err));
+      usernameStep();
+    } finally {
+      go.disabled = false;
+    }
+  });
+  usernameStep();
+})();
+</script>
+</body>
+</html>

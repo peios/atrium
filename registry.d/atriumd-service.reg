@@ -2,18 +2,23 @@
   "_comment": [
     "The atriumd service definition: what peinit starts, and how.",
     "",
-    "Identity is LocalService for now: this slice binds 8080, which is an",
-    "unreserved port and so anyone's once port-reservations.reg applies, and",
-    "does nothing else. It will move to SYSTEM when it starts originating",
-    "logons (logon.sock admits SYSTEM alone, and installing another",
-    "principal's token needs SeTcbPrivilege) -- recorded here so that move is",
-    "a known step rather than a surprise.",
+    "Identity is SYSTEM because atriumd originates logons: /run/logon.sock",
+    "admits SYSTEM alone, and authd's may_originate is SYSTEM-only until its",
+    "per-caller policy table exists. It is the ONLY privileged process in",
+    "Atrium -- it spawns atrium-server, the half that touches the network,",
+    "under a copy of its own token with every privilege deleted, and the two",
+    "share one socketpair. Nothing listening on a port runs as SYSTEM.",
     "",
-    "Readiness is Notify (0): atriumd sends READY=1 once its listener is",
-    "bound.",
+    "Requires lpsd, as login-console does: authd being up means a prompt can",
+    "be COLLECTED; lpsd being registered means it can be ANSWERED, and lpsd",
+    "itself depends on authd, so this one edge orders the whole chain.",
     "",
-    "RestartPolicy is Always (2): a machine whose session host is down has",
-    "no way for its users to reach it, and a restart costs nothing yet.",
+    "Readiness is Notify (0): atriumd sends READY=1 once atrium-server is",
+    "spawned. The listener is the server's, so a bind failure shows as the",
+    "server exiting and atriumd following it.",
+    "",
+    "RestartPolicy is Always (2): sessions do not survive an atriumd restart",
+    "(by decision, for now), so a restart is the recovery for everything.",
     "",
     "Shipped by the atriumd package into /usr/share/regim/; inert until an",
     "image names it in [registry] autoapply."
@@ -26,12 +31,13 @@
       "values": [
         { "name": "ImagePath", "type": "sz", "data": "/usr/sbin/atriumd" },
         { "name": "Triggers", "type": "multi", "data": ["boot"] },
-        { "name": "Identity", "type": "sz", "data": "LocalService" },
+        { "name": "Requires", "type": "multi", "data": ["lpsd"] },
+        { "name": "Identity", "type": "sz", "data": "SYSTEM" },
         { "name": "Readiness", "type": "dword", "data": 0 },
         { "name": "RestartPolicy", "type": "dword", "data": 2 },
         { "name": "ErrorControl", "type": "dword", "data": 0 },
         { "name": "DisplayName", "type": "sz", "data": "Atrium web session host" },
-        { "name": "Description", "type": "sz", "data": "The Peios web UI: serves the browser-delivered session on port 8080" }
+        { "name": "Description", "type": "sz", "data": "The Peios web UI: logs users on through the authority and serves the browser-delivered session on port 8080" }
       ]
     }
   ]

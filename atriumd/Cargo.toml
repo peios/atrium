@@ -1,6 +1,6 @@
 [package]
 name = "atriumd"
-description = "The Peios web session host."
+description = "The Peios web session host: originates logons, holds sessions, spawns the rest."
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -11,3 +11,7 @@ name = "atriumd"
 path = "src/main.rs"
 
 [dependencies]
+atrium-proto = { path = "../atrium-proto" }
+libauthd = { workspace = true }
+libc = { workspace = true }
+peios = { workspace = true }

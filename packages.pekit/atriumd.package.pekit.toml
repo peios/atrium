@@ -1,12 +1,15 @@
-# atriumd — the Peios web session host.
+# atriumd — the Peios web session host, with atrium-server, the unprivileged
+# network-facing half it spawns. One package: the two are one program split
+# for privilege, versioned and shipped together.
 #
-# Runtime library dependencies (glibc) are derived from the binary's
-# DT_NEEDED entries.
+# Runtime library dependencies (libpeios, glibc) are derived from the
+# binaries' DT_NEEDED entries.
 
 [package]
 description = "Peios web session host - the browser-delivered session, on port 8080"
 
 [files]
 ":usr/sbin/atriumd" = "usr/sbin/atriumd"
+":usr/libexec/atrium/atrium-server" = "usr/libexec/atrium/atrium-server"
 # The service definition. Inert until an image names it in [registry] autoapply.
 ":usr/share/regim/atriumd-service.reg" = "usr/share/regim/atriumd-service.reg"

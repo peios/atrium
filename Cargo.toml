@@ -1,15 +1,28 @@
 [workspace]
 resolver = "2"
-members = ["atriumd"]
+members = ["atrium-proto", "atriumd", "atrium-server"]
 
 # atrium is its own workspace root, like netd, resolvd and authd.
 #
-#   atriumd    the daemon: the Peios web session host. Today it serves one
-#              page; it grows one slice at a time (see the Atrium project in
-#              Acta).
+#   atrium-proto    the control protocol between atriumd and atrium-server:
+#                   message types and the length-prefixed framing. No I/O
+#                   policy, no privilege.
+#   atriumd         the daemon peinit starts, as SYSTEM. Originates logons
+#                   with authd, holds the session table, and spawns the
+#                   unprivileged server (and, once peinit's jobs API lands,
+#                   asks peinit to spawn per-user session hosts).
+#   atrium-server   the network-facing half, spawned by atriumd with a
+#                   privilege-stripped token. HTTP, the login page, cookies.
 
 [workspace.package]
-version = "0.0.1"
+version = "0.0.2"
 edition = "2024"
 license = "MIT"
 publish = false
+
+[workspace.dependencies]
+libc = "0.2"
+peios = { path = "../peios-rs/peios" }
+libauthd = { path = "../authd/libauthd" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
