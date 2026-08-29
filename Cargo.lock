@@ -13,14 +13,14 @@ dependencies = [
 
 [[package]]
 name = "atrium-http"
-version = "0.0.7"
+version = "0.0.8"
 dependencies = [
  "serde_json",
 ]
 
 [[package]]
 name = "atrium-proto"
-version = "0.0.7"
+version = "0.0.8"
 dependencies = [
  "libc",
  "serde",
@@ -29,7 +29,7 @@ dependencies = [
 
 [[package]]
 name = "atrium-server"
-version = "0.0.7"
+version = "0.0.8"
 dependencies = [
  "atrium-http",
  "atrium-proto",
@@ -39,7 +39,7 @@ dependencies = [
 
 [[package]]
 name = "atrium-session"
-version = "0.0.7"
+version = "0.0.8"
 dependencies = [
  "atrium-http",
  "atrium-proto",
@@ -51,12 +51,13 @@ dependencies = [
 
 [[package]]
 name = "atriumd"
-version = "0.0.7"
+version = "0.0.8"
 dependencies = [
  "atrium-proto",
  "libauthd",
  "libc",
  "peios",
+ "serde_json",
 ]
 
 [[package]]

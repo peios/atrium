@@ -26,24 +26,25 @@ use libauthd::wire::{
 use libauthd::{LOGON_SOCKET_PATH, Secret};
 use peios::token::Token;
 
+use crate::jobs::{self, JobsClient};
 use crate::log;
 use crate::spawn;
 
 /// How long to wait on the authority for any one reply.
 const AUTHORITY_TIMEOUT: Duration = Duration::from_secs(30);
 
-/// A logged-on principal with a session host running as them.
+/// A logged-on principal with a session host running as them, as a peinit
+/// job.
 ///
-/// The token is held for the session's life: it is what a future
-/// re-spawn, an elevation, or peinit's jobs API (which replaces the spawn
-/// here) needs, and closing it is what ends the logon session once the
-/// host is gone.
+/// The token is held for the session's life: a future re-spawn or an
+/// elevation needs it, and closing it is what ends the logon session once
+/// the host is gone.
 #[allow(dead_code)]
 pub struct Session {
     pub token: Token,
     pub username: String,
     pub profile: wire::Profile,
-    pub pid: libc::pid_t,
+    pub job_id: String,
     pub pidfd: OwnedFd,
 }
 
@@ -60,6 +61,7 @@ pub struct Logon {
     pub pending_fd: Option<OwnedFd>,
     /// `--unrestricted`: spawn session hosts without installing a token.
     pub unrestricted: bool,
+    jobs: Option<JobsClient>,
 }
 
 /// Which denials leave the page usable for another try (the same rule as
@@ -71,6 +73,14 @@ fn retryable(d: Denial) -> bool {
 impl Logon {
     pub fn new(unrestricted: bool) -> Self {
         Logon { unrestricted, ..Default::default() }
+    }
+
+    /// The jobs connection, made on first use and remade after a failure.
+    fn jobs(&mut self) -> std::io::Result<&mut JobsClient> {
+        if self.jobs.is_none() {
+            self.jobs = Some(JobsClient::connect()?);
+        }
+        Ok(self.jobs.as_mut().expect("connected"))
     }
 
     pub fn start(&mut self, conv: u64, username: String, remote: String) -> Reply {
@@ -143,21 +153,33 @@ impl Logon {
         // The host is signalled; the entry (and the token) go when the
         // main loop reaps it, so the logon session outlives the process by
         // exactly as long as it takes to die.
-        match self.sessions.get(&session) {
-            Some(s) => {
-                log::info(format_args!("session {session} ({}) logged out; terminating pid {}", s.username, s.pid));
-                spawn::terminate(s.pid);
+        let Some((username, job_id)) = self.sessions.get(&session).map(|s| (s.username.clone(), s.job_id.clone())) else {
+            log::warn(format_args!("logout of unknown session {session}"));
+            return Reply::Ok;
+        };
+        log::info(format_args!("session {session} ({username}) logged out; stopping job {job_id}"));
+        match self.jobs() {
+            Ok(jobs) => spawn::terminate(jobs, &job_id),
+            Err(e) => {
+                log::error(format_args!("jobs socket: {e}"));
+                self.jobs = None;
             }
-            None => log::warn(format_args!("logout of unknown session {session}")),
         }
         Reply::Ok
     }
 
     /// A session host has exited: forget it and release its token.
-    pub fn ended(&mut self, session: u64, how: &str) {
-        if let Some(s) = self.sessions.remove(&session) {
-            log::info(format_args!("session {session} ({}) ended: {how}", s.username));
-        }
+    pub fn ended(&mut self, session: u64) {
+        let Some(s) = self.sessions.remove(&session) else { return };
+        // How it ended is peinit's record, not ours.
+        let how = match self.jobs().and_then(|j| j.status(&s.job_id)) {
+            Ok(view) => jobs::describe_end(&view),
+            Err(e) => {
+                self.jobs = None;
+                format!("exited (status unavailable: {e})")
+            }
+        };
+        log::info(format_args!("session {session} ({}) ended: {how}", s.username));
     }
 
     /// Read the authority's next message for `conv` and turn it into a reply.
@@ -218,15 +240,17 @@ impl Logon {
                 let session = granted.session_id;
                 let token = Token::from(descriptor);
                 log::info(format_args!("session {session} established for {}", c.username));
-                let spawned = match spawn::spawn_session(
-                    session,
-                    if self.unrestricted { None } else { Some(&token) },
-                    &c.username,
-                    &granted.profile,
-                ) {
+                let unrestricted = self.unrestricted;
+                let spawned = match self
+                    .jobs()
+                    .and_then(|jobs| spawn::spawn_session(jobs, session, if unrestricted { None } else { Some(&token) }, &c.username, &granted.profile))
+                {
                     Ok(s) => s,
                     Err(e) => {
                         log::error(format_args!("could not start a session host for {}: {e}", c.username));
+                        // A failed exchange may have left the connection in
+                        // an unknown state; make a fresh one next time.
+                        self.jobs = None;
                         // The token drops here, which ends the logon session.
                         return Reply::Error { conv, reason: "could not start a session".into() };
                     }
@@ -238,7 +262,7 @@ impl Logon {
                 };
                 self.sessions.insert(
                     session,
-                    Session { token, username: c.username.clone(), profile: granted.profile, pid: spawned.pid, pidfd: spawned.pidfd },
+                    Session { token, username: c.username.clone(), profile: granted.profile, job_id: spawned.job_id, pidfd: spawned.pidfd },
                 );
                 self.pending_fd = Some(spawned.server_end);
                 Reply::Granted { conv, session, username: c.username, display_name }

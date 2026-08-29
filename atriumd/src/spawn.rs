@@ -1,29 +1,30 @@
-//! Spawning atriumd's children: the server, and — for now — session hosts.
+//! Starting atriumd's children.
 //!
-//! Both follow the same shape: create a socketpair, fork, and in the child
-//! ask for SIGTERM on parent death, place the child's end on fd 3
-//! (`atrium_proto::CONTROL_FD`), install a token, exec. Every other
-//! descriptor is CLOEXEC.
+//! **The server** is atriumd's own child: create a socketpair, fork, and in
+//! the child ask for SIGTERM on parent death, place the child's end on fd 3
+//! (`atrium_proto::CONTROL_FD`), install a copy of atriumd's own token with
+//! every privilege deleted (`Token::restrict`) — the Chrome sandbox move:
+//! same user SID, so nothing about file ownership changes, but no SeTcb,
+//! no SeAssignPrimaryToken, nothing a network parser can spend — and exec.
 //!
-//! The server gets a copy of atriumd's own token with every privilege
-//! deleted (`Token::restrict`) — the Chrome sandbox move: same user SID, so
-//! nothing about file ownership changes, but no SeTcb, no
-//! SeAssignPrimaryToken, nothing a network parser can spend.
-//!
-//! A session host gets the user's primary token from the logon, and is the
-//! user from its first instruction. **This half is a stopgap**: it is what
-//! peinit's jobs API will do instead (PEI-523), with cgroups, output
-//! routing and job records that are deliberately not reimplemented here.
-//! atriumd being a process factory for users is the thing that goes away.
+//! **A session host** is not atriumd's child at all. It is a job submitted
+//! to peinit (PSPU §7): the logon token authd gave us travels with the
+//! `submit` as the job identity, the session's control socket travels as a
+//! descriptor, and peinit is the parent — cgroup, output to eventd, the
+//! job record, and the one process on the machine that installs primaries
+//! for other people. atriumd gets a pidfd back and never forks as anyone
+//! but itself.
 
 use std::ffi::CString;
-use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
+use std::os::fd::{AsFd, AsRawFd, FromRawFd, OwnedFd};
 use std::os::unix::net::UnixStream;
 
 use libauthd::wire::Profile;
 use peios::security::Privileges;
 use peios::token::{RestrictSpec, Token, TokenAccess};
+use serde_json::json;
 
+use crate::jobs::JobsClient;
 use crate::log;
 
 /// Where the binaries live on an image. `ATRIUM_SERVER` / `ATRIUM_SESSION`
@@ -37,8 +38,9 @@ pub struct Server {
 }
 
 pub struct SpawnedSession {
-    pub pid: libc::pid_t,
-    /// A pidfd, so the main loop can poll for the session's death.
+    /// peinit's job identifier: what `stop` and `status` address.
+    pub job_id: String,
+    /// The job's process handle, so the main loop can poll for its exit.
     pub pidfd: OwnedFd,
     /// The end of the session's control socket that goes to atrium-server.
     pub server_end: OwnedFd,
@@ -74,123 +76,108 @@ fn socketpair() -> std::io::Result<(OwnedFd, OwnedFd)> {
     Ok(unsafe { (OwnedFd::from_raw_fd(fds[0]), OwnedFd::from_raw_fd(fds[1])) })
 }
 
-/// What the child does between fork and exec. Everything is prepared before
-/// the fork; after it only async-signal-safe calls happen (atriumd is
-/// single-threaded, so this is belt and braces).
-struct Child<'a> {
-    control: &'a OwnedFd,
-    token: Option<&'a Token>,
-    /// `setsid` and `chdir` here: a session host is a session leader in
-    /// its own process group (so ending it ends its tree) and starts in the
-    /// user's home. The server is neither.
-    session: Option<&'a CString>,
-    path: &'a CString,
-    argv0: &'a CString,
-    envp: Option<&'a [CString]>,
-}
-
-/// Exit codes the child uses to say what went wrong before exec.
+/// Exit codes the server child uses to say what went wrong before exec.
 const EXIT_INSTALL: i32 = 125;
 const EXIT_FD: i32 = 126;
 const EXIT_EXEC: i32 = 127;
 
-fn fork_child(c: &Child<'_>) -> std::io::Result<libc::pid_t> {
+pub fn spawn_server(unrestricted: bool) -> std::io::Result<Server> {
+    let (ours, theirs) = socketpair()?;
+    // Everything the child needs, prepared before the fork: after fork only
+    // async-signal-safe work happens until exec (atriumd is single-threaded
+    // here, so this is belt and braces).
+    let token = if unrestricted { None } else { Some(restricted_token()?) };
+    let path = CString::new(server_path()).map_err(std::io::Error::other)?;
+    let argv0 = c"atrium-server";
+
     // SAFETY: fork in a single-threaded process; the child does only
     // syscalls and exec.
     let pid = unsafe { libc::fork() };
     if pid < 0 {
         return Err(std::io::Error::last_os_error());
     }
-    if pid != 0 {
-        return Ok(pid);
+    if pid == 0 {
+        // Child. Nothing below returns.
+        // SAFETY: syscalls on fds and strings we own; _exit on any failure.
+        unsafe {
+            // Must not outlive atriumd: with it gone nothing answers the
+            // control socket and every cookie is orphaned.
+            libc::prctl(libc::PR_SET_PDEATHSIG, libc::SIGTERM);
+            // dup2 clears CLOEXEC on the copy, which is the point.
+            if libc::dup2(theirs.as_raw_fd(), atrium_proto::CONTROL_FD) < 0 {
+                libc::_exit(EXIT_FD);
+            }
+            if let Some(t) = &token {
+                if t.install().is_err() {
+                    libc::_exit(EXIT_INSTALL);
+                }
+            }
+            let argv = [argv0.as_ptr(), std::ptr::null()];
+            libc::execv(path.as_ptr(), argv.as_ptr());
+            libc::_exit(EXIT_EXEC);
+        }
     }
-    // Child. Nothing below returns.
-    // SAFETY: syscalls on fds and strings we own; _exit on any failure.
-    unsafe {
-        // Must not outlive atriumd: with it gone nothing answers a control
-        // socket and every cookie is orphaned.
-        libc::prctl(libc::PR_SET_PDEATHSIG, libc::SIGTERM);
-        // dup2 clears CLOEXEC on the copy, which is the point.
-        if libc::dup2(c.control.as_raw_fd(), atrium_proto::CONTROL_FD) < 0 {
-            libc::_exit(EXIT_FD);
-        }
-        if let Some(t) = c.token {
-            if t.install().is_err() {
-                libc::_exit(EXIT_INSTALL);
-            }
-        }
-        if let Some(home) = c.session {
-            libc::setsid();
-            if libc::chdir(home.as_ptr()) != 0 {
-                // A missing home is not a failed session; `login` starts
-                // in / for the same reason.
-                libc::chdir(c"/".as_ptr());
-            }
-        }
-        let argv = [c.argv0.as_ptr(), std::ptr::null()];
-        match c.envp {
-            Some(env) => {
-                let mut envp: Vec<*const libc::c_char> = env.iter().map(|e| e.as_ptr()).collect();
-                envp.push(std::ptr::null());
-                libc::execve(c.path.as_ptr(), argv.as_ptr(), envp.as_ptr());
-            }
-            None => {
-                libc::execv(c.path.as_ptr(), argv.as_ptr());
-            }
-        }
-        libc::_exit(EXIT_EXEC);
-    }
-}
-
-pub fn spawn_server(unrestricted: bool) -> std::io::Result<Server> {
-    let (ours, theirs) = socketpair()?;
-    let token = if unrestricted { None } else { Some(restricted_token()?) };
-    let path = CString::new(server_path()).map_err(std::io::Error::other)?;
-    let argv0 = c"atrium-server".to_owned();
-    let pid = fork_child(&Child { control: &theirs, token: token.as_ref(), session: None, path: &path, argv0: &argv0, envp: None })?;
     drop(theirs);
     log::info(format_args!("atrium-server started (pid {pid})"));
     Ok(Server { pid, control: UnixStream::from(ours) })
 }
 
-pub fn spawn_session(session: u64, token: Option<&Token>, username: &str, profile: &Profile) -> std::io::Result<SpawnedSession> {
+/// Submit a session host to peinit as `username`, identified by `token`
+/// (the logon primary; `None` under `--unrestricted`, when the job runs as
+/// atriumd itself).
+pub fn spawn_session(
+    jobs: &mut JobsClient,
+    session: u64,
+    token: Option<&Token>,
+    username: &str,
+    profile: &Profile,
+) -> std::io::Result<SpawnedSession> {
     let (server_end, theirs) = socketpair()?;
-    let path = CString::new(session_path()).map_err(std::io::Error::other)?;
-    let argv0 = c"atrium-session".to_owned();
-    // The environment `login` gives a shell, minus the shell's own. A
-    // relative home is refused for the reason login refuses one: nothing
-    // should resolve relative paths as the user before the user's code runs.
-    let home = if profile.home.starts_with('/') { profile.home.as_str() } else { "/" };
-    let env: Vec<CString> = [
-        format!("HOME={home}"),
-        format!("USER={username}"),
-        format!("LOGNAME={username}"),
-        "PATH=/usr/bin:/bin".to_string(),
-        format!("ATRIUM_SESSION={session}"),
-        format!("ATRIUM_DISPLAY_NAME={}", if profile.display_name.is_empty() { username } else { profile.display_name.as_str() }),
-    ]
-    .into_iter()
-    .filter_map(|s| CString::new(s).ok())
-    .collect();
-    let home_c = CString::new(home).map_err(std::io::Error::other)?;
-    let pid = fork_child(&Child { control: &theirs, token, session: Some(&home_c), path: &path, argv0: &argv0, envp: Some(&env) })?;
+    // The environment `login` gives a shell, minus the shell's own; peinit
+    // sets none of these (PSPU §7.6) because it knows nothing but the
+    // token. A missing home is not a failed session: `login` starts in /
+    // for the same reason, and peinit would fail the job on a chdir it
+    // cannot make.
+    let home = if profile.home.starts_with('/') && std::path::Path::new(&profile.home).is_dir() {
+        profile.home.as_str()
+    } else {
+        "/"
+    };
+    let display_name = if profile.display_name.is_empty() { username } else { profile.display_name.as_str() };
+    let definition = json!({
+        "image_path": session_path(),
+        "arguments": [],
+        "environment": {
+            "HOME": home,
+            "USER": username,
+            "LOGNAME": username,
+            "PATH": "/usr/bin:/bin",
+            "ATRIUM_SESSION": session.to_string(),
+            "ATRIUM_DISPLAY_NAME": display_name,
+        },
+        "working_directory": home,
+        "description": format!("Atrium session for {username}"),
+        "descriptors": ["atrium-control"],
+        "stop_timeout": 10,
+    });
+    let submitted = jobs.submit(definition, token.map(|t| t.as_fd()), &[theirs.as_fd()])?;
     drop(theirs);
-    // SAFETY: pidfd_open on our own just-forked child; the fd is ours.
-    let raw = unsafe { libc::syscall(libc::SYS_pidfd_open, pid, 0) };
-    if raw < 0 {
-        let e = std::io::Error::last_os_error();
-        // SAFETY: killing the child we just made.
-        unsafe { libc::kill(pid, libc::SIGKILL) };
-        return Err(e);
+    if submitted.state != "running" {
+        return Err(std::io::Error::other(format!(
+            "job {} is {}{}",
+            submitted.id,
+            submitted.state,
+            submitted.cause.map(|c| format!(" ({c})")).unwrap_or_default()
+        )));
     }
-    // SAFETY: a fresh fd from the syscall above.
-    let pidfd = unsafe { OwnedFd::from_raw_fd(raw as i32) };
-    log::info(format_args!("atrium-session started for {username} (session {session}, pid {pid})"));
-    Ok(SpawnedSession { pid, pidfd, server_end })
+    let Some(pidfd) = submitted.pidfd else {
+        return Err(std::io::Error::other(format!("job {} is running but peinit sent no process handle", submitted.id)));
+    };
+    log::info(format_args!("atrium-session started for {username} (session {session}, job {})", submitted.id));
+    Ok(SpawnedSession { job_id: submitted.id, pidfd, server_end })
 }
 
-/// Collect a child's exit status. Blocks; call once the pidfd is readable
-/// or the control socket has closed.
+/// Collect the server's exit status once its control socket has closed.
 pub fn reap(pid: libc::pid_t) -> String {
     let mut status = 0;
     // SAFETY: waitpid on our own child.
@@ -212,8 +199,10 @@ pub fn reap(pid: libc::pid_t) -> String {
     }
 }
 
-/// End a session host's whole process group.
-pub fn terminate(pid: libc::pid_t) {
-    // SAFETY: signalling a process group we created with setsid.
-    unsafe { libc::kill(-pid, libc::SIGTERM) };
+/// Ask peinit to end a session host: SIGTERM, then its kill after the
+/// stop timeout.
+pub fn terminate(jobs: &mut JobsClient, job_id: &str) {
+    if let Err(e) = jobs.stop(job_id) {
+        log::warn(format_args!("stop job {job_id}: {e}"));
+    }
 }

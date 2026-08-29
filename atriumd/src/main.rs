@@ -9,13 +9,14 @@
 //!     every privilege deleted, joined to us by one socketpair;
 //!   * on the server's behalf, hold logon conversations with the authority
 //!     (PGSS Logon) and keep the resulting tokens in a session table;
-//!   * start one `atrium-session` per logon as that principal, and hand the
-//!     server the socket to reach it. Spawning is a stopgap for peinit's
-//!     jobs API (see spawn.rs); holding the table is not.
+//!   * submit one `atrium-session` per logon to peinit as that principal
+//!     (PSPU §7), and hand the server the socket to reach it.
 //!
-//! It never parses HTTP and never impersonates. If a feature seems to need
-//! adding here, it belongs in the server or the session host.
+//! It never parses HTTP, never impersonates, and never forks as anyone but
+//! itself. If a feature seems to need adding here, it belongs in the server
+//! or the session host.
 
+mod jobs;
 mod log;
 mod logon;
 mod spawn;
@@ -44,7 +45,7 @@ fn main() -> ExitCode {
     // a development switch and the log says so every time.
     let unrestricted = std::env::args().any(|a| a == "--unrestricted");
     if unrestricted {
-        log::warn(format_args!("--unrestricted: children run with this process's own token"));
+        log::warn(format_args!("--unrestricted: the server and every session run as this process's own identity"));
     }
 
     let server = match spawn::spawn_server(unrestricted) {
@@ -83,9 +84,7 @@ fn main() -> ExitCode {
         // its reap.
         for (i, id) in order.iter().enumerate() {
             if fds[i + 1].revents != 0 {
-                let pid = logon.sessions[id].pid;
-                let how = spawn::reap(pid);
-                logon.ended(*id, &how);
+                logon.ended(*id);
             }
         }
 
