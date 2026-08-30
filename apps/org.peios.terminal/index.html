@@ -13,15 +13,17 @@
   .xterm { height: 100%; }
   #gone {
     display: none; place-items: center; flex: 1;
-    color: var(--c-text-3); font-size: 13.5px;
+    color: var(--c-text-3); font-size: 13.5px; text-align: center; padding: 0 2rem;
   }
+  #gone .err { color: var(--c-err); font-family: var(--font-mono); font-size: 12.5px;
+               margin-top: 8px; overflow-wrap: anywhere; }
   body.exited #term { display: none; }
   body.exited #gone { display: grid; }
 </style>
 </head>
 <body>
 <div id="term"></div>
-<div id="gone">The shell exited. Close this window, or open a new terminal.</div>
+<div id="gone"><div><div id="gone-msg">The shell exited. Close this window, or open a new terminal.</div><div class="err" id="gone-err" hidden></div></div></div>
 <script src="/apps/org.peios.terminal/vendor/xterm.min.js"></script>
 <script src="/apps/org.peios.terminal/vendor/addon-fit.min.js"></script>
 <script type="module">
@@ -63,7 +65,13 @@
   atrium.on('theme', () => term.options.theme = themeFor());
 
   shell.done.then(() => document.body.classList.add('exited'))
-            .catch((e) => { term.write(`\r\n${e.message}\r\n`); document.body.classList.add('exited'); });
+            .catch((e) => {
+              // A refusal, not an exit: say what the session said.
+              document.getElementById('gone-msg').textContent = 'The terminal could not start.';
+              const err = document.getElementById('gone-err');
+              err.textContent = e.message; err.hidden = false;
+              document.body.classList.add('exited');
+            });
 </script>
 </body>
 </html>
