@@ -1,0 +1,268 @@
+#!/usr/bin/env python3
+"""A fake reg for the dev harness, speaking the --json subset the Registry
+app uses: ls -l, get [-L], info, sd, layer ls, set (with --expected-seq),
+new, del. Errors mimic the real exit codes: 2 not-found, 3 denied,
+6 sequence conflict.
+
+State lives in $FAKE_REG_STATE (default /tmp/fake-reg.json). Any key path
+under Machine\\System\\Secrets is access-denied.
+"""
+import json, os, sys
+
+STATE = os.environ.get("FAKE_REG_STATE", "/tmp/fake-reg.json")
+SEP = "\\"
+
+SDDL = "O:SYG:BAD:(A;;GA;;;SY)(A;;GA;;;BA)(A;;0x20019;;;AU)"
+
+def default_state():
+    def key(values=None, sddl=SDDL):
+        return {"values": values or {}, "sddl": sddl}
+    def v(t, d, seq=1, layer=""):
+        return {"type": t, "data": d, "seq": seq, "layer": layer}
+    return {
+        "layers": [
+            {"name": "base", "precedence": 0, "enabled": True, "owner": None},
+            {"name": "policy", "precedence": 100, "enabled": True, "owner": "S-1-5-32-544"},
+        ],
+        "keys": {
+            "Machine": key(),
+            "Machine" + SEP + "Software": key(),
+            "Machine" + SEP + "Software" + SEP + "Peios": key(),
+            "Machine" + SEP + "Software" + SEP + "Peios" + SEP + "Atrium": key({
+                "": v("sz", "the default value"),
+                "Theme": v("sz", "dark", seq=4),
+                "ReconnectMs": v("dword", 300, seq=2),
+                "PinnedApps": v("multi", ["org.peios.about", "org.peios.terminal"], seq=7),
+                "SessionKey": v("binary", "deadbeef0102", seq=1),
+                "Motd": v("sz", "welcome", seq=9, layer="policy"),
+            }),
+            "Machine" + SEP + "System": key(),
+            "Machine" + SEP + "System" + SEP + "Services": key(),
+            "Machine" + SEP + "System" + SEP + "Services" + SEP + "atriumd": key({
+                "ImagePath": v("sz", "/usr/sbin/atriumd"),
+                "Triggers": v("multi", ["boot"]),
+                "Readiness": v("dword", 0),
+            }),
+            "Machine" + SEP + "System" + SEP + "Secrets": key(),
+            "CurrentUser": key(),
+            "CurrentUser" + SEP + "Desktop": key({
+                "Wallpaper": v("sz", "/usr/share/peios/wall.png"),
+            }),
+            "Users": key(),
+            "Users" + SEP + "S-1-5-21-1-2-3-1001": key(),
+        },
+    }
+
+
+def load():
+    try:
+        with open(STATE) as f:
+            return json.load(f)
+    except Exception:
+        s = default_state()
+        save(s)
+        return s
+
+
+def save(s):
+    with open(STATE, "w") as f:
+        json.dump(s, f)
+
+
+def die(code, msg):
+    print("reg: " + msg, file=sys.stderr)
+    sys.exit(code)
+
+
+def out(obj):
+    print(json.dumps(obj, indent=2))
+    sys.exit(0)
+
+
+def norm(path):
+    parts = [p for p in path.replace("/", SEP).split(SEP) if p]
+    return SEP.join(parts)
+
+
+def check_denied(path):
+    if path.startswith("Machine" + SEP + "System" + SEP + "Secrets"):
+        die(3, "open key: Permission denied\n  target: " + path)
+
+
+def children_of(keys, path):
+    pre = path + SEP
+    kids = {}
+    for k in keys:
+        if k.startswith(pre):
+            rest = k[len(pre):]
+            name = rest.split(SEP)[0]
+            kids.setdefault(name, pre + name)
+    return kids
+
+
+def main():
+    args = sys.argv[1:]
+    flags = [a for a in args if a.startswith("-")]
+    words = [a for a in args if not a.startswith("-")]
+
+    def flagval(name):
+        for i, a in enumerate(args):
+            if a == name and i + 1 < len(args):
+                return args[i + 1]
+        return None
+
+    if "--json" not in flags:
+        die(1, "fake reg only implements --json")
+    if not words:
+        die(1, "missing subcommand")
+
+    st = load()
+    keys = st["keys"]
+    verb = words[0]
+
+    # `layer` consumes a second word as its own verb; --layer's argument may
+    # also appear in words, so slice positionals carefully.
+    if verb == "layer":
+        if len(words) > 1 and words[1] == "ls":
+            out({"layers": st["layers"]})
+        die(1, "fake reg: unimplemented layer verb")
+
+    # Strip the --layer / --expected-seq arguments out of the positionals.
+    layer = flagval("--layer") or ""
+    expseq = flagval("--expected-seq")
+    pos = []
+    skip = set()
+    for i, a in enumerate(args):
+        if a in ("--layer", "--expected-seq") and i + 1 < len(args):
+            skip.add(i + 1)
+    for i, a in enumerate(args):
+        if a.startswith("-") or i in skip or i == 0:
+            continue
+        pos.append(a)
+
+    if not pos:
+        die(1, "missing key")
+    path = norm(pos[0])
+    check_denied(path)
+
+    if verb == "ls":
+        if path not in keys:
+            die(2, "not found: " + path)
+        kids = children_of(keys, path)
+        subkeys = []
+        for name in sorted(kids):
+            sub = kids[name]
+            subkeys.append({"name": name,
+                            "subkey_count": len(children_of(keys, sub)),
+                            "value_count": len(keys.get(sub, {}).get("values", {})),
+                            "last_write_time": 1750000000000000000})
+        vals = keys[path]["values"]
+        values = [{"name": n, "type": v["type"], "data": v["data"]}
+                  for n, v in sorted(vals.items(), key=lambda kv: (kv[0] != "", kv[0].lower()))]
+        out({"subkeys": subkeys, "values": values})
+
+    if verb == "get":
+        if path not in keys:
+            die(2, "not found: " + path)
+        vals = keys[path]["values"]
+        if len(pos) > 1:
+            name = "" if pos[1] == "@" else pos[1]
+            if name not in vals:
+                die(2, "not found: " + path)
+            v = vals[name]
+            obj = {"type": v["type"], "data": v["data"]}
+            if "-L" in flags or "--layers" in flags:
+                obj.update(name=name, sequence=v.get("seq", 1), layer=v.get("layer", ""))
+            out(obj)
+        out({"values": [{"name": n, "type": v["type"], "data": v["data"]}
+                        for n, v in sorted(vals.items())]})
+
+    if verb == "info":
+        if path not in keys:
+            die(2, "not found: " + path)
+        out({"path": path, "name": path.split(SEP)[-1],
+             "subkeys": len(children_of(keys, path)),
+             "values": len(keys[path]["values"]),
+             "last_write_ns": 1750000000000000000, "hive_generation": 3,
+             "sd_size": 88, "volatile": False, "symlink": False})
+
+    if verb == "sd":
+        if path not in keys:
+            die(2, "not found: " + path)
+        out({"key": path, "sddl": keys[path]["sddl"]})
+
+    if verb == "set":
+        if len(pos) < 3:
+            die(1, "set needs key, value, data")
+        if path not in keys:
+            die(2, "not found: " + path)
+        name = "" if pos[1] == "@" else pos[1]
+        data = pos[2]
+        vals = keys[path]["values"]
+        cur = vals.get(name)
+        if expseq is not None and cur is not None and int(expseq) != cur.get("seq", 1):
+            die(6, "value changed under you (sequence mismatch): " + path
+                + "\n  re-read and retry, or drop --expected-seq to force")
+        # parse literal
+        t, _, rest = data.partition(":")
+        known = {"sz", "expand", "dword", "qword", "multi", "hex", "bin", "link", "none", "dword-be"}
+        if t in known:
+            kw, raw = t, rest
+        else:
+            kw, raw = ("dword", data) if data.isdigit() else ("sz", data)
+        if kw in ("dword", "qword", "dword-be"):
+            parsed = int(raw, 16) if raw.lower().startswith("0x") else int(raw)
+        elif kw == "multi":
+            els, cur_el, i = [], "", 0
+            while i < len(raw):
+                c = raw[i]
+                if c == "\\" and i + 1 < len(raw):
+                    cur_el += raw[i + 1]; i += 2; continue
+                if c == ",":
+                    els.append(cur_el); cur_el = ""; i += 1; continue
+                cur_el += c; i += 1
+            if raw:
+                els.append(cur_el)
+            parsed = els
+        elif kw in ("hex", "bin"):
+            kw, parsed = "binary", raw.lower()
+        elif kw == "none":
+            parsed = None
+        else:
+            parsed = raw
+        seq = (cur.get("seq", 1) + 1) if cur else 1
+        vals[name] = {"type": kw, "data": parsed, "seq": seq, "layer": layer}
+        save(st)
+        out({"set": path, "name": name, "type": kw, "value": parsed, "layer": layer or "base"})
+
+    if verb == "new":
+        if path in keys:
+            out({"key": path, "created": False, "layer": layer or "base"})
+        parent = SEP.join(path.split(SEP)[:-1])
+        if parent not in keys:
+            die(2, "not found: " + parent)
+        keys[path] = {"values": {}, "sddl": SDDL}
+        save(st)
+        out({"key": path, "created": True, "layer": layer or "base"})
+
+    if verb in ("del", "delete"):
+        if path not in keys:
+            die(2, "not found: " + path)
+        if len(pos) > 1:
+            name = "" if pos[1] == "@" else pos[1]
+            if name not in keys[path]["values"]:
+                die(2, "not found: " + path)
+            del keys[path]["values"][name]
+            save(st)
+            out({"deleted": path, "value": name})
+        for k in list(keys):
+            if k == path or k.startswith(path + SEP):
+                del keys[k]
+        save(st)
+        out({"deleted": path})
+
+    die(1, "fake reg: unimplemented verb " + verb)
+
+
+if __name__ == "__main__":
+    main()

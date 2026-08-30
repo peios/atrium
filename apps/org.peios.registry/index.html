@@ -1,3 +1,995 @@
-<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Registry</title>
-<style>:root{color-scheme:light dark;font-family:system-ui,sans-serif}body{margin:2rem}</style></head>
-<body><h1>Registry</h1><p>Layered configuration: base, local, overlays.</p><p><em>Placeholder — this app has no behaviour yet.</em></p></body></html>
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Registry</title>
+<link rel="stylesheet" href="/shell/tokens.css">
+<style>
+  body { min-height: 100vh; }
+  main { max-width: 88rem; margin: 0 auto; padding: clamp(16px, 3vh, 32px) 20px 32px;
+         display: flex; flex-direction: column; gap: 14px; height: 100vh; box-sizing: border-box; }
+  [hidden] { display: none !important; }
+
+  .page-head { display: flex; align-items: end; justify-content: space-between; gap: 20px; flex: none; }
+  .eyebrow { font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.1em;
+             text-transform: uppercase; color: var(--c-text-3); }
+  h1 { font-size: 26px; font-weight: 600; letter-spacing: -0.02em; margin: 4px 0 0; }
+  .actions { display: flex; gap: 8px; align-items: center; }
+
+  .btn { display: inline-flex; align-items: center; gap: 7px; font: inherit; font-size: 13px;
+         font-weight: 500; cursor: pointer; padding: 7px 13px; border-radius: 999px;
+         border: 1px solid var(--c-border-2); background: var(--c-surface); color: var(--c-text);
+         transition: background 0.15s, border-color 0.15s; }
+  .btn:hover { background: var(--c-surface-2); border-color: var(--c-text-3); }
+  .btn:disabled { opacity: 0.5; cursor: default; }
+  .btn.primary { background: var(--c-accent); border-color: var(--c-accent); color: white; }
+  .btn.primary:hover { filter: brightness(1.05); background: var(--c-accent); }
+  .btn.sm { padding: 4px 11px; font-size: 12px; }
+  .btn.danger:hover { border-color: color-mix(in oklab, var(--c-err) 45%, transparent); color: var(--c-err); }
+
+  .banner { border: 1px solid color-mix(in oklab, var(--c-err) 40%, transparent);
+            background: color-mix(in oklab, var(--c-err) 7%, var(--c-surface));
+            border-radius: var(--radius); padding: 10px 14px; font-size: 13px; flex: none; }
+
+  /* ---- 3 panes ---- */
+  .panes { display: grid; grid-template-columns: 270px minmax(0, 1fr) 300px; gap: 12px;
+           flex: 1; min-height: 0; }
+  .pane { background: var(--c-surface); border: 1px solid var(--c-border);
+          border-radius: var(--radius-lg); box-shadow: var(--shadow-1);
+          display: flex; flex-direction: column; overflow: hidden; min-height: 0; }
+  @media (max-width: 1150px) { .panes { grid-template-columns: 240px minmax(0, 1fr); } .pane-insp { display: none; } }
+  @media (max-width: 760px)  { .panes { grid-template-columns: minmax(0, 1fr); } .pane-tree { max-height: 320px; } }
+
+  .pane-head { padding: 10px 12px; border-bottom: 1px solid var(--c-border); flex: none; }
+
+  /* Tree */
+  .search { display: flex; align-items: center; gap: 7px; background: var(--c-bg);
+            border: 1px solid var(--c-border); border-radius: 7px; padding: 5px 9px; }
+  .search:focus-within { border-color: var(--c-accent); }
+  .search svg { color: var(--c-text-3); flex: none; }
+  .search input { flex: 1; min-width: 0; border: none; background: none; outline: none;
+                  font-family: var(--font-mono); font-size: 12px; color: var(--c-text); }
+  .search-hint { font-size: 10.5px; color: var(--c-text-3); margin-top: 6px; }
+  .tree { flex: 1; overflow-y: auto; padding: 6px 0 10px; font-size: 12.5px; }
+  .trow { display: flex; align-items: center; gap: 5px; height: 26px; padding-right: 10px;
+          cursor: pointer; user-select: none; border-left: 2px solid transparent; white-space: nowrap; }
+  .trow:hover { background: var(--c-surface-2); }
+  .trow.sel { background: var(--c-accent-2); border-left-color: var(--c-accent); }
+  .trow.hive .tname { font-family: var(--font-mono); font-weight: 600; }
+  .trow.denied { opacity: 0.6; }
+  .chev { width: 14px; font-size: 9px; color: var(--c-text-3); text-align: center;
+          transition: transform 0.15s; flex: none; display: inline-block; }
+  .chev.open { transform: rotate(90deg); }
+  .chev.invis { visibility: hidden; }
+  .tname { overflow: hidden; text-overflow: ellipsis; }
+  .tbadge { margin-left: auto; font-family: var(--font-mono); font-size: 9px; padding: 1px 5px;
+            border-radius: 3px; flex: none; }
+  .tbadge.lock { background: color-mix(in oklab, var(--c-err) 14%, transparent); color: var(--c-err); }
+  .tbadge.n { color: var(--c-text-3); }
+  .tree-msg { padding: 14px; color: var(--c-text-3); font-size: 12px; }
+
+  /* Detail */
+  .crumb { display: flex; flex-wrap: wrap; align-items: baseline; font-family: var(--font-mono);
+           font-size: 13px; line-height: 1.5; }
+  .crumb .seg { cursor: pointer; }
+  .crumb .seg:hover { text-decoration: underline; }
+  .crumb .seg.hive { color: var(--c-accent); font-weight: 600; }
+  .crumb .sep { color: var(--c-text-3); margin: 0 3px; }
+  .keymeta { display: flex; gap: 14px; flex-wrap: wrap; font-size: 11px; color: var(--c-text-2);
+             margin-top: 6px; }
+  .keymeta .k { font-family: var(--font-mono); font-size: 10px; text-transform: uppercase;
+                letter-spacing: 0.06em; color: var(--c-text-3); margin-right: 4px; }
+  .tabs { display: flex; gap: 2px; margin-top: 10px; margin-bottom: -11px; }
+  .tab { display: inline-flex; align-items: center; gap: 6px; padding: 7px 12px; font-size: 12.5px;
+         border: 1px solid transparent; border-bottom: none; border-radius: 7px 7px 0 0;
+         color: var(--c-text-2); cursor: pointer; background: none; font: inherit; }
+  .tab:hover { color: var(--c-text); }
+  .tab.active { background: var(--c-bg); border-color: var(--c-border); color: var(--c-text); font-weight: 500; }
+  .tab .n { font-family: var(--font-mono); font-size: 10.5px; background: var(--c-surface-2);
+            padding: 1px 6px; border-radius: 8px; color: var(--c-text-3); }
+  .detail-body { flex: 1; overflow-y: auto; padding: 12px 14px; background: var(--c-bg); }
+  .dstate { padding: 40px 20px; text-align: center; color: var(--c-text-3); font-size: 13px; }
+  .dstate.denied { color: var(--c-err); }
+
+  /* Values table */
+  .vhead, .vrow { display: grid; grid-template-columns: minmax(120px, 180px) 84px minmax(0, 1fr) 60px;
+                  gap: 10px; padding: 7px 10px; align-items: center; }
+  .vhead { font-family: var(--font-mono); font-size: 10px; text-transform: uppercase;
+           letter-spacing: 0.07em; color: var(--c-text-3); border-bottom: 1px solid var(--c-border); }
+  .vrow { font-size: 12.5px; border-bottom: 1px solid color-mix(in oklab, var(--c-border) 55%, transparent);
+          cursor: pointer; border-left: 2px solid transparent; }
+  .vrow:hover { background: var(--c-surface); }
+  .vrow.sel { background: var(--c-accent-2); border-left-color: var(--c-accent); }
+  .vname { font-family: var(--font-mono); font-weight: 500; font-size: 12px;
+           overflow: hidden; text-overflow: ellipsis; }
+  .vdata { font-family: var(--font-mono); font-size: 11.5px; overflow: hidden;
+           text-overflow: ellipsis; white-space: nowrap; color: var(--c-text-2); }
+  .vact { display: flex; justify-content: flex-end; }
+  .ibtn { display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px;
+          border-radius: 5px; color: var(--c-text-3); border: 1px solid transparent;
+          background: none; cursor: pointer; font: inherit; }
+  .ibtn:hover { background: var(--c-surface); border-color: var(--c-border); color: var(--c-err); }
+  .vfoot { display: flex; gap: 8px; align-items: center; padding: 10px 4px; flex-wrap: wrap; }
+  .vfoot .note { margin-left: auto; font-size: 11px; color: var(--c-text-3); }
+
+  /* Type chips */
+  .tchip { display: inline-block; padding: 1px 6px; border-radius: 4px; font-family: var(--font-mono);
+           font-size: 9.5px; font-weight: 600; letter-spacing: 0.03em;
+           background: var(--c-surface-2); color: var(--c-text-2); border: 1px solid var(--c-border); }
+  .tchip.t-sz, .tchip.t-expand, .tchip.t-link { color: var(--c-ok); background: color-mix(in oklab, var(--c-ok) 9%, transparent); }
+  .tchip.t-dword, .tchip.t-dword-be, .tchip.t-qword { color: var(--c-info); background: color-mix(in oklab, var(--c-info) 9%, transparent); }
+  .tchip.t-multi { color: var(--c-warn); background: color-mix(in oklab, var(--c-warn) 12%, transparent); }
+  .tchip.t-binary { color: var(--c-err); background: color-mix(in oklab, var(--c-err) 8%, transparent); }
+
+  .str { color: var(--c-ok); } .num { color: var(--c-info); } .dim { color: var(--c-text-3); font-style: italic; }
+
+  /* Forms */
+  .form { display: grid; gap: 8px; padding: 12px; border: 1px solid var(--c-border);
+          border-radius: var(--radius); background: var(--c-surface); margin-top: 10px; }
+  .form label { font-family: var(--font-mono); font-size: 10px; text-transform: uppercase;
+                letter-spacing: 0.06em; color: var(--c-text-3); }
+  .form input, .form select, .form textarea {
+    font-family: var(--font-mono); font-size: 12px; padding: 6px 9px; color: var(--c-text);
+    background: var(--c-bg); border: 1px solid var(--c-border); border-radius: 6px; outline: none; }
+  .form input:focus, .form textarea:focus { border-color: var(--c-accent); }
+  .form textarea { resize: vertical; min-height: 60px; }
+  .form .row { display: flex; gap: 8px; align-items: center; }
+  .ferr { color: var(--c-err); font-size: 12px; font-family: var(--font-mono); white-space: pre-wrap; }
+
+  /* Security */
+  .sd-summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px;
+                padding: 12px; background: var(--c-surface); border: 1px solid var(--c-border);
+                border-radius: var(--radius); margin-bottom: 12px; }
+  .sd-summary .k { font-family: var(--font-mono); font-size: 10px; text-transform: uppercase;
+                   letter-spacing: 0.06em; color: var(--c-text-3); margin-bottom: 3px; }
+  .sd-summary .v { font-family: var(--font-mono); font-size: 12px; overflow-wrap: anywhere; }
+  .acl { border: 1px solid var(--c-border); border-radius: var(--radius); overflow: hidden;
+         background: var(--c-surface); }
+  .ace-head, .ace { display: grid; grid-template-columns: 64px minmax(0,1.2fr) minmax(0,1.6fr); gap: 10px;
+                    padding: 7px 10px; font-size: 11.5px; align-items: center; }
+  .ace-head { background: var(--c-surface-2); font-family: var(--font-mono); font-size: 10px;
+              text-transform: uppercase; letter-spacing: 0.06em; color: var(--c-text-3); }
+  .ace { border-top: 1px solid var(--c-border); }
+  .ace .who { font-family: var(--font-mono); overflow-wrap: anywhere; }
+  .acetype { display: inline-block; padding: 1px 6px; border-radius: 3px; font-family: var(--font-mono);
+             font-size: 9.5px; font-weight: 600; }
+  .acetype.A { background: color-mix(in oklab, var(--c-ok) 14%, transparent); color: var(--c-ok); }
+  .acetype.D { background: color-mix(in oklab, var(--c-err) 14%, transparent); color: var(--c-err); }
+  .mask { display: flex; flex-wrap: wrap; gap: 3px; }
+  .mchip { font-family: var(--font-mono); font-size: 10px; padding: 1px 5px; border-radius: 3px;
+           background: var(--c-surface-2); border: 1px solid var(--c-border); color: var(--c-text-2); }
+  .sddl-raw { font-family: var(--font-mono); font-size: 11px; color: var(--c-text-2);
+              background: var(--c-surface); border: 1px solid var(--c-border); border-radius: var(--radius);
+              padding: 10px 12px; margin-top: 12px; overflow-wrap: anywhere; }
+
+  /* Info */
+  .facts { display: grid; grid-template-columns: max-content 1fr; gap: 5px 18px; font-size: 12.5px;
+           background: var(--c-surface); border: 1px solid var(--c-border); border-radius: var(--radius);
+           padding: 12px 14px; }
+  .facts dt { font-family: var(--font-mono); font-size: 10.5px; color: var(--c-text-3);
+              text-transform: uppercase; letter-spacing: 0.06em; padding-top: 2px; }
+  .facts dd { margin: 0; font-family: var(--font-mono); font-size: 12px; overflow-wrap: anywhere; }
+
+  /* Inspector */
+  .insp-body { flex: 1; overflow-y: auto; padding: 12px; display: flex; flex-direction: column; gap: 12px; }
+  .insp-empty { color: var(--c-text-3); font-size: 12.5px; text-align: center; padding: 30px 10px; }
+  .insp-name { font-family: var(--font-mono); font-size: 13px; font-weight: 600; overflow-wrap: anywhere; }
+  .insp-data { font-family: var(--font-mono); font-size: 12px; background: var(--c-bg);
+               border: 1px solid var(--c-border); border-radius: var(--radius); padding: 10px 12px;
+               white-space: pre-wrap; overflow-wrap: anywhere; max-height: 200px; overflow-y: auto; }
+  .prov { display: flex; align-items: center; gap: 8px; font-size: 11.5px; color: var(--c-text-2);
+          flex-wrap: wrap; }
+  .lpill { display: inline-flex; align-items: center; gap: 6px; padding: 2px 8px; border-radius: 5px;
+           background: color-mix(in oklab, var(--c-accent) 10%, transparent);
+           border: 1px solid color-mix(in oklab, var(--c-accent) 35%, var(--c-border));
+           font-family: var(--font-mono); font-size: 11px; }
+  .layers { border-top: 1px solid var(--c-border); padding-top: 10px; }
+  .layers .hd { display: flex; justify-content: space-between; align-items: baseline;
+                font-family: var(--font-mono); font-size: 10px; text-transform: uppercase;
+                letter-spacing: 0.07em; color: var(--c-text-3); margin-bottom: 6px; }
+  .lrow { display: flex; align-items: center; gap: 8px; padding: 5px 8px; border-radius: 6px;
+          font-size: 11.5px; border: 1px solid var(--c-border); background: var(--c-surface);
+          margin-bottom: 4px; }
+  .lrow .mono { font-family: var(--font-mono); }
+  .lrow .prec { margin-left: auto; font-family: var(--font-mono); font-size: 10px; color: var(--c-text-3); }
+  .lrow.off { opacity: 0.5; }
+  .lrow.target { border-color: color-mix(in oklab, var(--c-accent) 45%, var(--c-border));
+                 background: color-mix(in oklab, var(--c-accent) 7%, var(--c-surface)); }
+  .mono { font-family: var(--font-mono); }
+</style>
+</head>
+<body>
+<main>
+  <div class="page-head">
+    <div>
+      <div class="eyebrow" id="host">registry</div>
+      <h1>Registry</h1>
+    </div>
+    <div class="actions">
+      <button class="btn" id="b-refresh">Refresh</button>
+    </div>
+  </div>
+
+  <div id="banner" class="banner" hidden></div>
+
+  <div class="panes">
+    <!-- Tree -->
+    <aside class="pane pane-tree">
+      <div class="pane-head">
+        <div class="search">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
+          <input id="q" placeholder="fuzzy path search" spellcheck="false">
+        </div>
+        <div class="search-hint">Filters keys already loaded into the tree.</div>
+      </div>
+      <div class="tree" id="tree"></div>
+    </aside>
+
+    <!-- Key detail -->
+    <section class="pane pane-detail">
+      <div class="pane-head" id="dhead" hidden>
+        <div class="crumb" id="crumb"></div>
+        <div class="keymeta" id="keymeta"></div>
+        <div class="tabs">
+          <button class="tab active" data-tab="values">Values <span class="n" id="n-values">0</span></button>
+          <button class="tab" data-tab="security">Security</button>
+          <button class="tab" data-tab="info">Info</button>
+        </div>
+      </div>
+      <div class="detail-body" id="dbody">
+        <div class="dstate">Select a key to view its contents.</div>
+      </div>
+    </section>
+
+    <!-- Inspector -->
+    <aside class="pane pane-insp">
+      <div class="pane-head" style="font-family: var(--font-mono); font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.07em; color: var(--c-text-3);">Inspector</div>
+      <div class="insp-body" id="insp">
+        <div class="insp-empty">Select a value to inspect and edit it.</div>
+      </div>
+    </aside>
+  </div>
+</main>
+
+<script type="module">
+import { atrium } from '/shell/sdk.js';
+
+const $ = (id) => document.getElementById(id);
+const SEP = '\\';
+const ROOTS = ['Machine', 'CurrentUser', 'Users'];
+const TYPE_LABEL = { sz: 'SZ', expand: 'EXPAND_SZ', binary: 'BINARY', dword: 'DWORD',
+  'dword-be': 'DWORD_BE', link: 'LINK', multi: 'MULTI_SZ', qword: 'QWORD',
+  none: 'NONE', tombstone: 'TOMBSTONE' };
+const EDIT_TYPES = ['sz', 'expand', 'dword', 'qword', 'multi', 'binary'];
+const SID_ALIAS = { SY: 'SYSTEM', BA: 'Administrators', BU: 'Users', AU: 'Authenticated Users',
+  WD: 'Everyone', CO: 'Creator Owner', IU: 'Interactive' };
+
+// ---- state ----------------------------------------------------------------
+const nodes = new Map(); // path -> {name, children: [name]|null, values: []|null, status, err, counts:{}}
+let expanded = new Set(['Machine']);
+let selected = null;      // key path
+let selectedValue = null; // value name ('' = default) or null
+let prov = null;          // {layer, sequence} for selected value
+let tab = 'values';
+let keyInfo = null, keySd = null;
+let layers = [];
+let editorOpen = false, newValueOpen = false, newKeyOpen = false;
+let pollTimer = null;
+
+function node(path) {
+  if (!nodes.has(path)) {
+    nodes.set(path, { name: path.split(SEP).pop(), children: null, values: null,
+                      status: 'unloaded', err: null, counts: {} });
+  }
+  return nodes.get(path);
+}
+ROOTS.forEach(node);
+
+// ---- reg over exec --------------------------------------------------------
+class RegError extends Error {
+  constructor(exit, stderr) {
+    super((stderr || `reg exited ${exit}`).trim());
+    this.exit = exit;
+  }
+  get kind() {
+    return { 2: 'notfound', 3: 'denied', 6: 'conflict' }[this.exit] || 'error';
+  }
+}
+
+// Runs reg <args> --json; resolves with the parsed JSON. Errors are plain
+// text on stderr keyed by exit code: 2 not-found, 3 denied, 6 CAS conflict.
+async function reg(...args) {
+  let out = '', err = '';
+  const done = await atrium.exec(['reg', ...args, '--json'],
+    (text, stream) => { if (stream === 'stderr') err += text; else out += text; });
+  if (done.exit_code !== 0) throw new RegError(done.exit_code ?? -1, err);
+  try { return JSON.parse(out); } catch { throw new RegError(-1, `unparseable reg output: ${out.slice(0, 200)}`); }
+}
+const vaddr = (name) => name === '' ? '@' : name;
+
+// ---- rendering helpers ----------------------------------------------------
+function chip(kw) {
+  const c = document.createElement('span');
+  c.className = `tchip t-${kw}`;
+  c.textContent = TYPE_LABEL[kw] || kw.toUpperCase();
+  return c;
+}
+
+function renderData(kw, data) {
+  const s = document.createElement('span');
+  if (data === null || data === undefined) { s.className = 'dim'; s.textContent = '(none)'; return s; }
+  switch (kw) {
+    case 'sz': case 'expand': case 'link':
+      s.className = 'str'; s.textContent = JSON.stringify(String(data)); break;
+    case 'dword': case 'dword-be': case 'qword':
+      s.className = 'num'; s.textContent = String(data); break;
+    case 'multi':
+      s.className = 'str';
+      s.textContent = Array.isArray(data) ? `[${data.map((x) => JSON.stringify(x)).join(', ')}]` : String(data);
+      break;
+    case 'binary': {
+      const hex = String(data);
+      const spaced = (hex.match(/.{1,2}/g) || []).join(' ');
+      s.className = 'mono';
+      s.textContent = hex.length > 96 ? `${spaced.slice(0, 144)}… (${hex.length / 2} bytes)` : spaced;
+      break;
+    }
+    case 'none': s.className = 'dim'; s.textContent = '(none)'; break;
+    case 'tombstone': s.className = 'dim'; s.textContent = '(tombstone)'; break;
+    default: s.className = 'mono'; s.textContent = String(data);
+  }
+  return s;
+}
+
+function fuzzy(q, p) {
+  q = q.toLowerCase(); p = p.toLowerCase();
+  let i = 0;
+  for (const ch of p) { if (ch === q[i]) i++; if (i === q.length) return true; }
+  return i === q.length;
+}
+
+// ---- tree -----------------------------------------------------------------
+async function loadKey(path, { quiet = false } = {}) {
+  const n = node(path);
+  if (!quiet) { n.status = 'loading'; renderTree(); }
+  try {
+    const res = await reg('ls', path, '-l');
+    n.children = (res.subkeys || []).map((s) => s.name);
+    n.counts = Object.fromEntries((res.subkeys || []).map((s) => [s.name, s.subkey_count + s.value_count]));
+    n.values = res.values || [];
+    n.status = 'ok'; n.err = null;
+    for (const c of n.children) node(`${path}${SEP}${c}`);
+  } catch (e) {
+    n.status = e.kind === 'denied' ? 'denied' : e.kind === 'notfound' ? 'notfound' : 'error';
+    n.err = e.message;
+    n.children = n.children || [];
+    n.values = n.values || [];
+  }
+  renderTree();
+  if (selected === path) renderDetail();
+}
+
+function renderTree() {
+  const q = $('q').value.trim();
+  const box = $('tree');
+  box.textContent = '';
+
+  if (q) {
+    const hits = [...nodes.keys()].filter((p) => fuzzy(q, p)).sort().slice(0, 200);
+    if (!hits.length) { box.innerHTML = '<div class="tree-msg">No loaded key matches.</div>'; return; }
+    for (const p of hits) box.appendChild(treeRow(p, 0, { flat: true }));
+    return;
+  }
+  for (const r of ROOTS) renderBranch(box, r, 0);
+}
+
+function renderBranch(box, path, depth) {
+  box.appendChild(treeRow(path, depth));
+  const n = node(path);
+  if (expanded.has(path) && n.children) {
+    for (const c of n.children) renderBranch(box, `${path}${SEP}${c}`, depth + 1);
+  }
+}
+
+function treeRow(path, depth, { flat = false } = {}) {
+  const n = node(path);
+  const row = document.createElement('div');
+  row.className = 'trow' + (selected === path ? ' sel' : '') + (depth === 0 && !flat ? ' hive' : '')
+    + (n.status === 'denied' ? ' denied' : '');
+  row.dataset.path = path;
+  row.style.paddingLeft = `${8 + depth * 13}px`;
+
+  const chev = document.createElement('span');
+  const mayHaveKids = n.children === null || n.children.length > 0;
+  chev.className = 'chev' + (expanded.has(path) && n.children ? ' open' : '') + (mayHaveKids && !flat ? '' : ' invis');
+  chev.textContent = '▸';
+
+  const name = document.createElement('span');
+  name.className = 'tname' + (flat ? ' mono' : '');
+  name.textContent = flat ? path : (depth === 0 ? `${n.name}${SEP}` : n.name);
+
+  row.append(chev, name);
+  if (n.status === 'denied') {
+    const b = document.createElement('span');
+    b.className = 'tbadge lock'; b.textContent = 'denied'; b.title = n.err || '';
+    row.appendChild(b);
+  } else if (n.status === 'loading') {
+    const b = document.createElement('span');
+    b.className = 'tbadge n'; b.textContent = '…';
+    row.appendChild(b);
+  }
+
+  row.addEventListener('click', () => selectKey(path, { toggle: !flat }));
+  return row;
+}
+
+// ---- selection ------------------------------------------------------------
+async function selectKey(path, { toggle = false } = {}) {
+  const n = node(path);
+  if (toggle && selected === path) {
+    expanded.has(path) ? expanded.delete(path) : expanded.add(path);
+  } else if (toggle) {
+    expanded.add(path);
+  }
+  selected = path;
+  selectedValue = null; prov = null; keyInfo = null; keySd = null;
+  editorOpen = newValueOpen = newKeyOpen = false;
+  renderTree(); renderDetail(); renderInspector();
+  if (n.status === 'unloaded' || n.status === 'error' || n.status === 'notfound') await loadKey(path);
+  else renderDetail();
+  loadInfo();
+  if (tab === 'security') loadSd();
+}
+
+async function loadInfo() {
+  if (!selected) return;
+  try { keyInfo = await reg('info', selected); } catch (e) { keyInfo = { error: e.message }; }
+  renderKeyMeta();
+  if (tab === 'info') renderDetail();
+}
+
+async function loadSd() {
+  if (!selected) return;
+  try { keySd = await reg('sd', selected); } catch (e) { keySd = { error: e.message, kind: e.kind }; }
+  if (tab === 'security') renderDetail();
+}
+
+async function selectValue(name) {
+  selectedValue = name; prov = null; editorOpen = false;
+  renderDetail(); renderInspector();
+  try {
+    prov = await reg('get', selected, vaddr(name), '-L');
+  } catch (e) {
+    prov = { error: e.message, kind: e.kind };
+  }
+  renderInspector();
+}
+
+// ---- detail pane ----------------------------------------------------------
+function renderKeyMeta() {
+  const m = $('keymeta');
+  m.textContent = '';
+  if (!keyInfo || keyInfo.error) return;
+  const add = (k, v) => {
+    if (v === undefined || v === null || v === false) return;
+    const s = document.createElement('span');
+    const kk = document.createElement('span'); kk.className = 'k'; kk.textContent = k;
+    s.append(kk, document.createTextNode(String(v === true ? 'yes' : v)));
+    m.appendChild(s);
+  };
+  add('subkeys', keyInfo.subkeys);
+  add('values', keyInfo.values);
+  add('volatile', keyInfo.volatile === true ? true : undefined);
+  add('symlink', keyInfo.symlink === true ? true : undefined);
+}
+
+function renderDetail() {
+  const head = $('dhead'), body = $('dbody');
+  if (!selected) { head.hidden = true; body.innerHTML = '<div class="dstate">Select a key to view its contents.</div>'; return; }
+  head.hidden = false;
+
+  // Breadcrumb
+  const crumb = $('crumb');
+  crumb.textContent = '';
+  const parts = selected.split(SEP);
+  parts.forEach((p, i) => {
+    const seg = document.createElement('span');
+    seg.className = 'seg' + (i === 0 ? ' hive' : '');
+    seg.textContent = p;
+    seg.addEventListener('click', () => selectKey(parts.slice(0, i + 1).join(SEP)));
+    crumb.appendChild(seg);
+    if (i < parts.length - 1) {
+      const sep = document.createElement('span'); sep.className = 'sep'; sep.textContent = SEP;
+      crumb.appendChild(sep);
+    }
+  });
+  renderKeyMeta();
+
+  const n = node(selected);
+  $('n-values').textContent = n.values ? n.values.length : 0;
+
+  body.textContent = '';
+  if (n.status === 'loading' || n.status === 'unloaded') {
+    body.innerHTML = '<div class="dstate">Loading…</div>'; return;
+  }
+  if (n.status === 'denied') {
+    body.innerHTML = `<div class="dstate denied">Access denied.<br><span class="mono" style="font-size:11px; color:var(--c-text-3)">${esc(n.err || '')}</span></div>`;
+    return;
+  }
+  if (n.status === 'notfound') { body.innerHTML = '<div class="dstate">This key no longer exists.</div>'; return; }
+  if (n.status === 'error') { body.innerHTML = `<div class="dstate denied">${esc(n.err || 'error')}</div>`; return; }
+
+  if (tab === 'values') renderValues(body, n);
+  else if (tab === 'security') renderSecurity(body);
+  else renderInfo(body);
+}
+
+function renderValues(body, n) {
+  const head = document.createElement('div');
+  head.className = 'vhead';
+  head.innerHTML = '<div>Name</div><div>Type</div><div>Data</div><div></div>';
+  body.appendChild(head);
+
+  const vals = [...(n.values || [])];
+  for (const v of vals) {
+    const row = document.createElement('div');
+    row.className = 'vrow' + (selectedValue === v.name ? ' sel' : '');
+    row.dataset.name = v.name;
+
+    const name = document.createElement('div');
+    name.className = 'vname';
+    name.textContent = v.name === '' ? '(default)' : v.name;
+
+    const type = document.createElement('div');
+    type.appendChild(chip(v.type));
+
+    const data = document.createElement('div');
+    data.className = 'vdata';
+    data.appendChild(renderData(v.type, v.data));
+
+    const act = document.createElement('div');
+    act.className = 'vact';
+    const del = document.createElement('button');
+    del.className = 'ibtn'; del.title = 'Delete value'; del.textContent = '×';
+    del.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      if (del.dataset.arm) { await deleteValue(v.name); }
+      else { del.dataset.arm = '1'; del.textContent = '✓?'; setTimeout(() => { del.textContent = '×'; delete del.dataset.arm; }, 2500); }
+    });
+    act.appendChild(del);
+
+    row.append(name, type, data, act);
+    row.addEventListener('click', () => selectValue(v.name));
+    body.appendChild(row);
+  }
+  if (!vals.length) {
+    const e = document.createElement('div');
+    e.className = 'dstate'; e.style.padding = '20px'; e.textContent = 'No values on this key.';
+    body.appendChild(e);
+  }
+
+  const foot = document.createElement('div');
+  foot.className = 'vfoot';
+  const bNewV = document.createElement('button');
+  bNewV.className = 'btn sm'; bNewV.id = 'b-newval'; bNewV.textContent = '+ New value';
+  bNewV.addEventListener('click', () => { newValueOpen = !newValueOpen; newKeyOpen = false; renderDetail(); });
+  const bNewK = document.createElement('button');
+  bNewK.className = 'btn sm'; bNewK.id = 'b-newkey'; bNewK.textContent = '+ New subkey';
+  bNewK.addEventListener('click', () => { newKeyOpen = !newKeyOpen; newValueOpen = false; renderDetail(); });
+  const note = document.createElement('span');
+  note.className = 'note';
+  note.textContent = targetLayerNote();
+  foot.append(bNewV, bNewK, note);
+  body.appendChild(foot);
+
+  if (newValueOpen) body.appendChild(newValueForm());
+  if (newKeyOpen) body.appendChild(newKeyForm());
+}
+
+function targetLayerNote() {
+  const t = layers.find((l) => l.target);
+  return `writes land on layer ${t ? t.name : 'base'}`;
+}
+
+function layerArgs() {
+  const t = layers.find((l) => l.target);
+  return t && t.name !== 'base' ? ['--layer', t.name] : [];
+}
+
+function esc(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+
+// ---- forms ----------------------------------------------------------------
+function typeSelect(current) {
+  const sel = document.createElement('select');
+  for (const t of EDIT_TYPES) {
+    const o = document.createElement('option');
+    o.value = t; o.textContent = TYPE_LABEL[t];
+    if (t === current) o.selected = true;
+    sel.appendChild(o);
+  }
+  return sel;
+}
+
+function dataInput(kw, initial) {
+  if (kw === 'multi') {
+    const t = document.createElement('textarea');
+    t.placeholder = 'one element per line';
+    t.value = Array.isArray(initial) ? initial.join('\n') : '';
+    return t;
+  }
+  const i = document.createElement('input');
+  i.spellcheck = false;
+  if (kw === 'dword' || kw === 'qword') i.placeholder = 'decimal or 0x…';
+  if (kw === 'binary') i.placeholder = 'hex bytes';
+  i.value = initial === undefined || initial === null ? '' :
+    Array.isArray(initial) ? initial.join(',') : String(initial);
+  return i;
+}
+
+// Serialise editor state to reg's literal syntax with an explicit type
+// prefix (inference would mangle "007" and "0x2A" strings).
+function literal(kw, raw, multiLines) {
+  if (kw === 'multi') {
+    const els = multiLines.split('\n').filter((l) => l.length);
+    return 'multi:' + els.map((e) => e.replace(/\\/g, '\\\\').replace(/,/g, '\\,')).join(',');
+  }
+  if (kw === 'dword' || kw === 'qword') {
+    if (!/^(\d+|0[xX][0-9a-fA-F]+)$/.test(raw.trim())) throw new Error('not a number');
+    return `${kw}:${raw.trim()}`;
+  }
+  if (kw === 'binary') {
+    const hex = raw.replace(/[\s:-]/g, '');
+    if (!/^([0-9a-fA-F]{2})*$/.test(hex)) throw new Error('not hex bytes');
+    return `hex:${hex}`;
+  }
+  return `${kw}:${raw}`;
+}
+
+function formShell(title) {
+  const f = document.createElement('div');
+  f.className = 'form';
+  const h = document.createElement('label');
+  h.textContent = title;
+  f.appendChild(h);
+  return f;
+}
+
+function newValueForm() {
+  const f = formShell('New value');
+  const name = document.createElement('input');
+  name.placeholder = 'value name (@ for default)'; name.spellcheck = false; name.id = 'nv-name';
+  const sel = typeSelect('sz'); sel.id = 'nv-type';
+  let input = dataInput('sz'); input.id = 'nv-data';
+  sel.addEventListener('change', () => {
+    const fresh = dataInput(sel.value); fresh.id = 'nv-data';
+    input.replaceWith(fresh); input = fresh;
+  });
+  const row = document.createElement('div'); row.className = 'row';
+  const save = document.createElement('button');
+  save.className = 'btn sm primary'; save.id = 'nv-save'; save.textContent = 'Create';
+  const err = document.createElement('span'); err.className = 'ferr'; err.id = 'nv-err';
+  save.addEventListener('click', async () => {
+    try {
+      const nm = name.value.trim();
+      if (!nm) throw new Error('name required');
+      const lit = literal(sel.value, input.value, input.value);
+      await reg('set', selected, nm, lit, ...layerArgs());
+      newValueOpen = false;
+      await loadKey(selected, { quiet: true });
+    } catch (e) { err.textContent = e.message; }
+  });
+  row.append(sel, save, err);
+  f.append(name, input, row);
+  return f;
+}
+
+function newKeyForm() {
+  const f = formShell('New subkey');
+  const name = document.createElement('input');
+  name.placeholder = 'subkey name'; name.spellcheck = false; name.id = 'nk-name';
+  const row = document.createElement('div'); row.className = 'row';
+  const save = document.createElement('button');
+  save.className = 'btn sm primary'; save.id = 'nk-save'; save.textContent = 'Create key';
+  const err = document.createElement('span'); err.className = 'ferr'; err.id = 'nk-err';
+  save.addEventListener('click', async () => {
+    try {
+      const nm = name.value.trim();
+      if (!nm || nm.includes('\\') || nm.includes('/')) throw new Error('one plain component');
+      await reg('new', `${selected}${SEP}${nm}`, ...layerArgs());
+      newKeyOpen = false;
+      expanded.add(selected);
+      await loadKey(selected, { quiet: true });
+    } catch (e) { err.textContent = e.message; }
+  });
+  row.append(save, err);
+  f.append(name, row);
+  return f;
+}
+
+async function deleteValue(name) {
+  try {
+    await reg('del', selected, vaddr(name), '-y', ...layerArgs());
+    if (selectedValue === name) { selectedValue = null; prov = null; renderInspector(); }
+    await loadKey(selected, { quiet: true });
+  } catch (e) {
+    showBanner(`delete failed: ${e.message}`);
+  }
+}
+
+// ---- security tab ---------------------------------------------------------
+function parseSddl(sddl) {
+  const out = { owner: null, group: null, aces: [] };
+  const o = sddl.match(/O:([^:()]+?)(?=[GDS]:|$)/); if (o) out.owner = o[1];
+  const g = sddl.match(/G:([^:()]+?)(?=[DS]:|$)/); if (g) out.group = g[1];
+  const d = sddl.match(/D:[^(]*((?:\([^)]*\))+)/);
+  if (d) {
+    for (const m of d[1].matchAll(/\(([^)]*)\)/g)) {
+      const f = m[1].split(';');
+      out.aces.push({ type: f[0], flags: f[1] || '', rights: f[2] || '', sid: f[5] || f[f.length - 1] || '' });
+    }
+  }
+  return out;
+}
+
+function sidLabel(tok) {
+  return SID_ALIAS[tok] ? `${SID_ALIAS[tok]} (${tok})` : tok;
+}
+
+function renderSecurity(body) {
+  if (!keySd) { body.innerHTML = '<div class="dstate">Loading…</div>'; loadSd(); return; }
+  if (keySd.error) {
+    body.innerHTML = `<div class="dstate denied">${keySd.kind === 'denied' ? 'You may not read this key’s security descriptor.' : esc(keySd.error)}</div>`;
+    return;
+  }
+  const p = parseSddl(keySd.sddl || '');
+  const sum = document.createElement('div');
+  sum.className = 'sd-summary';
+  const cell = (k, v) => {
+    const c = document.createElement('div');
+    const kk = document.createElement('div'); kk.className = 'k'; kk.textContent = k;
+    const vv = document.createElement('div'); vv.className = 'v'; vv.textContent = v || '—';
+    c.append(kk, vv); return c;
+  };
+  sum.append(cell('Owner', p.owner && sidLabel(p.owner)), cell('Group', p.group && sidLabel(p.group)),
+             cell('ACEs', String(p.aces.length)));
+  body.appendChild(sum);
+
+  if (p.aces.length) {
+    const acl = document.createElement('div');
+    acl.className = 'acl';
+    const h = document.createElement('div');
+    h.className = 'ace-head';
+    h.innerHTML = '<div>Ace</div><div>Principal</div><div>Rights</div>';
+    acl.appendChild(h);
+    for (const a of p.aces) {
+      const r = document.createElement('div');
+      r.className = 'ace';
+      const t = document.createElement('div');
+      const tt = document.createElement('span');
+      tt.className = `acetype ${a.type === 'D' ? 'D' : 'A'}`;
+      tt.textContent = a.type === 'D' ? 'DENY' : a.type === 'A' ? 'ALLOW' : a.type;
+      t.appendChild(tt);
+      const who = document.createElement('div'); who.className = 'who'; who.textContent = sidLabel(a.sid);
+      const mask = document.createElement('div'); mask.className = 'mask';
+      for (const tok of (a.rights.match(/0x[0-9a-fA-F]+|[A-Z]{2}/g) || [a.rights])) {
+        const c = document.createElement('span'); c.className = 'mchip'; c.textContent = tok;
+        mask.appendChild(c);
+      }
+      r.append(t, who, mask);
+      acl.appendChild(r);
+    }
+    body.appendChild(acl);
+  }
+  const raw = document.createElement('div');
+  raw.className = 'sddl-raw'; raw.id = 'sddl';
+  raw.textContent = keySd.sddl;
+  body.appendChild(raw);
+}
+
+// ---- info tab -------------------------------------------------------------
+function renderInfo(body) {
+  if (!keyInfo) { body.innerHTML = '<div class="dstate">Loading…</div>'; return; }
+  if (keyInfo.error) { body.innerHTML = `<div class="dstate denied">${esc(keyInfo.error)}</div>`; return; }
+  const dl = document.createElement('dl');
+  dl.className = 'facts';
+  for (const [k, v] of Object.entries(keyInfo)) {
+    if (v === null || v === undefined) continue;
+    const dt = document.createElement('dt'); dt.textContent = k.replace(/_/g, ' ');
+    const dd = document.createElement('dd'); dd.textContent = String(v);
+    dl.append(dt, dd);
+  }
+  body.appendChild(dl);
+}
+
+// ---- inspector ------------------------------------------------------------
+function renderInspector() {
+  const box = $('insp');
+  box.textContent = '';
+
+  if (selected && selectedValue !== null) {
+    const n = node(selected);
+    const v = (n.values || []).find((x) => x.name === selectedValue);
+    if (v) {
+      const name = document.createElement('div');
+      name.className = 'insp-name';
+      name.textContent = v.name === '' ? '(default)' : v.name;
+      const t = document.createElement('div');
+      t.appendChild(chip(v.type));
+      const data = document.createElement('div');
+      data.className = 'insp-data'; data.id = 'insp-data';
+      if (v.type === 'multi' && Array.isArray(v.data)) data.textContent = v.data.join('\n') || '(empty)';
+      else data.appendChild(renderData(v.type, v.data));
+      box.append(name, t, data);
+
+      const pr = document.createElement('div');
+      pr.className = 'prov'; pr.id = 'prov';
+      if (prov === null) pr.textContent = 'resolving provenance…';
+      else if (prov.error) pr.textContent = prov.kind === 'denied' ? 'provenance: access denied' : `provenance: ${prov.error}`;
+      else {
+        pr.append('from layer ');
+        const pill = document.createElement('span');
+        pill.className = 'lpill'; pill.id = 'prov-layer'; pill.textContent = prov.layer || 'base';
+        pr.appendChild(pill);
+        const seq = document.createElement('span');
+        seq.className = 'mono'; seq.id = 'prov-seq';
+        seq.textContent = `seq ${prov.sequence}`;
+        pr.appendChild(seq);
+      }
+      box.appendChild(pr);
+
+      if (EDIT_TYPES.includes(v.type)) {
+        if (!editorOpen) {
+          const b = document.createElement('button');
+          b.className = 'btn sm'; b.id = 'b-edit'; b.textContent = 'Edit value';
+          b.addEventListener('click', () => { editorOpen = true; renderInspector(); });
+          box.appendChild(b);
+        } else {
+          box.appendChild(editorForm(v));
+        }
+      } else {
+        const d = document.createElement('div');
+        d.className = 'dim'; d.style.fontSize = '11.5px';
+        d.textContent = `${TYPE_LABEL[v.type] || v.type} values are read-only here.`;
+        box.appendChild(d);
+      }
+    }
+  } else {
+    const e = document.createElement('div');
+    e.className = 'insp-empty';
+    e.textContent = 'Select a value to inspect and edit it.';
+    box.appendChild(e);
+  }
+
+  // Layers card
+  const lc = document.createElement('div');
+  lc.className = 'layers';
+  const hd = document.createElement('div');
+  hd.className = 'hd';
+  hd.innerHTML = '<span>Layers</span><span>high → low</span>';
+  lc.appendChild(hd);
+  const sorted = [...layers].sort((a, b) => b.precedence - a.precedence);
+  for (const L of sorted) {
+    const r = document.createElement('div');
+    r.className = 'lrow' + (L.enabled ? '' : ' off') + (L.target ? ' target' : '');
+    r.dataset.layer = L.name;
+    r.title = 'click to make this the write target';
+    r.style.cursor = 'pointer';
+    const nm = document.createElement('span'); nm.className = 'mono'; nm.textContent = L.name;
+    const pr2 = document.createElement('span'); pr2.className = 'prec'; pr2.textContent = `prec ${L.precedence}${L.enabled ? '' : ' · off'}`;
+    r.append(nm, pr2);
+    r.addEventListener('click', () => {
+      layers.forEach((x) => { x.target = x === L; });
+      renderInspector(); renderDetail();
+    });
+    lc.appendChild(r);
+  }
+  if (!sorted.length) {
+    const d = document.createElement('div');
+    d.className = 'dim'; d.style.fontSize = '11px';
+    d.textContent = 'layer list unavailable';
+    lc.appendChild(d);
+  }
+  box.appendChild(lc);
+}
+
+function editorForm(v) {
+  const f = formShell(`Edit — writes to layer ${(layers.find((l) => l.target) || { name: 'base' }).name}`);
+  const sel = typeSelect(EDIT_TYPES.includes(v.type) ? v.type : 'sz'); sel.id = 'ed-type';
+  let input = dataInput(v.type, v.data); input.id = 'ed-data';
+  sel.addEventListener('change', () => {
+    const fresh = dataInput(sel.value, sel.value === v.type ? v.data : undefined);
+    fresh.id = 'ed-data';
+    input.replaceWith(fresh); input = fresh;
+  });
+  const row = document.createElement('div'); row.className = 'row';
+  const save = document.createElement('button');
+  save.className = 'btn sm primary'; save.id = 'ed-save'; save.textContent = 'Save';
+  const cancel = document.createElement('button');
+  cancel.className = 'btn sm'; cancel.textContent = 'Cancel';
+  cancel.addEventListener('click', () => { editorOpen = false; renderInspector(); });
+  const err = document.createElement('span'); err.className = 'ferr'; err.id = 'ed-err';
+  save.addEventListener('click', async () => {
+    try {
+      const lit = literal(sel.value, input.value, input.value);
+      const cas = prov && !prov.error && prov.sequence !== undefined
+        ? ['--expected-seq', String(prov.sequence)] : [];
+      await reg('set', selected, vaddr(v.name), lit, ...cas, ...layerArgs());
+      editorOpen = false;
+      await loadKey(selected, { quiet: true });
+      await selectValue(v.name);
+    } catch (e) {
+      if (e.kind === 'conflict') {
+        // Keep the editor (and this message) open; refresh the sequence so
+        // a second Save applies against the value as it now is.
+        err.textContent = 'changed under you — Save again to apply over the new value';
+        try { prov = await reg('get', selected, vaddr(v.name), '-L'); } catch {}
+      } else {
+        err.textContent = e.message;
+      }
+    }
+  });
+  row.append(save, cancel);
+  f.append(sel, input, row, err);
+  return f;
+}
+
+// ---- banner / data flow ---------------------------------------------------
+let bannerTimer = null;
+function showBanner(text) {
+  const b = $('banner');
+  b.textContent = text; b.hidden = false;
+  clearTimeout(bannerTimer);
+  bannerTimer = setTimeout(() => { b.hidden = true; }, 8000);
+}
+
+async function loadLayers() {
+  try {
+    const res = await reg('layer', 'ls');
+    const prev = layers.find((l) => l.target)?.name;
+    layers = (res.layers || []).map((l) => ({ ...l, target: l.name === (prev || 'base') }));
+    if (!layers.some((l) => l.target) && layers.length) layers[0].target = layers[0].name === 'base';
+  } catch { layers = []; }
+  renderInspector();
+}
+
+function refreshNow() {
+  if (selected) loadKey(selected, { quiet: true });
+  loadLayers();
+  schedulePoll();
+}
+
+function schedulePoll() {
+  clearTimeout(pollTimer);
+  pollTimer = setTimeout(() => {
+    if (!document.hidden && selected && !editorOpen && !newValueOpen && !newKeyOpen) {
+      loadKey(selected, { quiet: true });
+    }
+    schedulePoll();
+  }, document.hidden ? 30000 : 5000);
+}
+
+// ---- wiring ---------------------------------------------------------------
+for (const t of document.querySelectorAll('.tab')) {
+  t.addEventListener('click', () => {
+    tab = t.dataset.tab;
+    for (const o of document.querySelectorAll('.tab')) o.classList.toggle('active', o === t);
+    if (tab === 'security' && !keySd) loadSd();
+    renderDetail();
+  });
+}
+$('q').addEventListener('input', renderTree);
+$('b-refresh').addEventListener('click', refreshNow);
+document.addEventListener('visibilitychange', () => { if (!document.hidden) refreshNow(); });
+atrium.shortcuts.on('R', refreshNow);
+
+await atrium.ready();
+renderTree();
+loadLayers();
+schedulePoll();
+atrium.request({ kind: 'system-info' })
+  .then((i) => { if (i && i.hostname) $('host').textContent = `${i.hostname} / registry`; })
+  .catch(() => {});
+</script>
+</body>
+</html>
