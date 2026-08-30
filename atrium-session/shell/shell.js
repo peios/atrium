@@ -332,11 +332,8 @@ function cmdk() {
     rot.classList.remove('in'); rot.classList.add('out');
     setTimeout(() => { i = (i + 1) % hints.length; hint.textContent = `"${hints[i]}"`; rot.classList.remove('out'); rot.classList.add('in'); }, 300);
   }, 2900);
-  const focusSearch = () => { $('filter').focus(); $('filter').select(); };
-  $('cmdk').addEventListener('click', focusSearch);
-  document.addEventListener('keydown', (e) => {
-    if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') { e.preventDefault(); focusSearch(); }
-  });
+  // Ctrl+K itself lives in the session's keymap (action "command-bar").
+  $('cmdk').addEventListener('click', () => { showToolbox(); $('filter').focus(); $('filter').select(); });
 }
 
 // ---- Session mirror ---------------------------------------------------
@@ -349,6 +346,7 @@ const session = {
   focus: null,
   view: 'toolbox',      // this tab's choice: 'toolbox' | 'windows'
   queue: [],            // sends made while the socket was still connecting
+  keymap: [],           // [{chord, action}] — the session's chord table
   send(msg) {
     if (this.sock && this.sock.readyState === 1) this.sock.send(JSON.stringify(msg));
     else {
@@ -426,6 +424,7 @@ for (const evt of ['visibilitychange', 'online', 'focus']) {
 }
 
 function applySnapshot(m) {
+  session.keymap = m.keymap || [];
   // Diff against what we have: keep live frames, drop gone ones, add new.
   const keep = new Set(m.windows.map((w) => w.id));
   for (const id of [...session.windows.keys()]) if (!keep.has(id)) removeWindow(id);
@@ -486,6 +485,73 @@ function renderWindows() {
 $('win-close').addEventListener('click', () => { if (session.focus !== null) session.close(session.focus); });
 $('win-min').addEventListener('click', () => { if (session.focus !== null) session.minimize(session.focus); });
 
+// ---- Keybinds ---------------------------------------------------------
+// The session owns the table (it arrives in the snapshot); the shell owns
+// the actions. While an app frame has focus the SDK forwards reserved
+// chords back here — see the bus below. Chord form: sorted modifiers +
+// key, "Ctrl+Alt+T"; letters uppercased, so layouts follow the keyboard.
+function chordOf(e) {
+  const mods = [];
+  if (e.ctrlKey) mods.push('Ctrl');
+  if (e.altKey) mods.push('Alt');
+  if (e.metaKey) mods.push('Meta');
+  if (e.shiftKey) mods.push('Shift');
+  let key = e.key;
+  if (key === ' ') key = 'Space';
+  if (key.length === 1) key = key.toUpperCase();
+  if (['Control', 'Alt', 'Shift', 'Meta'].includes(key)) return null;
+  return [...mods, key].join('+');
+}
+
+function visibleWindows() {
+  return [...session.windows.values()].map(({ window: w }) => w).filter((w) => !w.minimized);
+}
+
+function runAction(action) {
+  const m = action.match(/^focus-window-([1-9])$/);
+  if (m) {
+    const w = [...session.windows.values()][Number(m[1]) - 1];
+    if (w) session.focusWindow(w.window.id);
+    return true;
+  }
+  switch (action) {
+    case 'command-bar':
+      showToolbox();
+      $('filter').focus();
+      $('filter').select();
+      return true;
+    case 'toolbox':
+      showToolbox();
+      return true;
+    case 'close-window':
+      if (session.focus !== null && session.view === 'windows') session.close(session.focus);
+      return true;
+    case 'minimize-window':
+      if (session.focus !== null && session.view === 'windows') session.minimize(session.focus);
+      return true;
+    case 'cycle-window': {
+      const vis = visibleWindows();
+      if (!vis.length) return true;
+      const at = vis.findIndex((w) => w.id === session.focus);
+      session.focusWindow(vis[(at + 1) % vis.length].id);
+      return true;
+    }
+    default:
+      console.warn('keybind: unknown action', action);
+      return false;
+  }
+}
+
+window.addEventListener('keydown', (e) => {
+  const chord = chordOf(e);
+  if (!chord) return;
+  const hit = session.keymap.find((b) => b.chord === chord);
+  if (!hit) return;
+  e.preventDefault();
+  e.stopPropagation();
+  runAction(hit.action);
+}, true);
+
 // ---- App bus ----------------------------------------------------------
 // The shell's half of the SDK: apps postMessage here, the shell vouches
 // for which window each frame is and relays what needs the session. The
@@ -529,6 +595,7 @@ window.addEventListener('message', (e) => {
         window: id,
         theme,
         user: { user: me.user || '', display_name: me.display_name || '' },
+        reserved: session.keymap.map((b) => b.chord),
       }, '*');
       renderWindows();
       break;
@@ -542,6 +609,13 @@ window.addEventListener('message', (e) => {
     case 'request':
       if (Number.isInteger(m.req)) session.send({ t: 'app', win: id, req: m.req, body: m.body ?? {} });
       break;
+    case 'chord': {
+      // A reserved chord captured inside the app's frame. Trust the table,
+      // not the message: only chords in the keymap do anything.
+      const hit = session.keymap.find((b) => b.chord === m.chord);
+      if (hit) runAction(hit.action);
+      break;
+    }
   }
 });
 

@@ -35,7 +35,15 @@
   };
 
   const ctx = await atrium.ready();
-  const info = await atrium.request({ kind: 'system-info' });
+  // R refreshes, while this window has focus: the SDK's local shortcuts,
+  // here mostly to prove they coexist with the shell's reserved chords.
+  atrium.shortcuts.on('R', load);
+  let info;
+  async function load() {
+    info = await atrium.request({ kind: 'system-info' });
+    render();
+  }
+  function render() {
   document.getElementById('sub').textContent =
     `Atrium ${info.atrium_version} on ${info.hostname || 'this machine'}`;
   const facts = [
@@ -48,12 +56,15 @@
     ['Window', ctx.window],
   ];
   const dl = document.getElementById('facts');
+  dl.replaceChildren();
   for (const [k, v] of facts) {
     if (v === '' || v === undefined) continue;
     const dt = document.createElement('dt'); dt.textContent = k;
     const dd = document.createElement('dd'); dd.textContent = v;
     dl.append(dt, dd);
   }
+  }
+  await load();
 </script>
 </body>
 </html>

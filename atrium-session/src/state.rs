@@ -60,6 +60,27 @@ struct Mirror {
     out: Arc<Mutex<UnixStream>>,
 }
 
+/// The session's chord table: what the shell (and, through the SDK, every
+/// app frame) treats as reserved, and what each chord does. Data, not
+/// code: it ships in the snapshot, so rebinding later is a request and a
+/// broadcast, nothing structural. Actions are namespaced — today all are
+/// shell actions ("close-window"); a future app-owned global would be
+/// "app:<id>:<name>", which is why the action is a string and not an enum
+/// on the wire.
+fn default_keymap() -> Vec<serde_json::Value> {
+    let mut map = vec![
+        json!({ "chord": "Ctrl+K", "action": "command-bar" }),
+        json!({ "chord": "Alt+T", "action": "toolbox" }),
+        json!({ "chord": "Alt+W", "action": "close-window" }),
+        json!({ "chord": "Alt+M", "action": "minimize-window" }),
+        json!({ "chord": "Ctrl+`", "action": "cycle-window" }),
+    ];
+    for n in 1..=9 {
+        map.push(json!({ "chord": format!("Alt+{n}"), "action": format!("focus-window-{n}") }));
+    }
+    map
+}
+
 #[derive(Default)]
 pub struct State {
     windows: Vec<Window>,
@@ -73,7 +94,7 @@ pub type Shared = Arc<Mutex<State>>;
 
 impl State {
     fn snapshot(&self) -> serde_json::Value {
-        json!({ "t": "snapshot", "windows": self.windows, "focus": self.focus })
+        json!({ "t": "snapshot", "windows": self.windows, "focus": self.focus, "keymap": default_keymap() })
     }
 
     /// Send one event to every mirror; a mirror that cannot be written is

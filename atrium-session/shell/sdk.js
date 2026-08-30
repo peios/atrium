@@ -16,6 +16,8 @@
 
 const pending = new Map(); // req id -> { resolve, reject }
 const handlers = new Map(); // event -> [fn]
+const localShortcuts = new Map(); // chord -> [fn]
+let reserved = [];
 let seq = 0;
 let context = null;
 let announceReady;
@@ -34,6 +36,7 @@ window.addEventListener('message', (e) => {
   switch (m.t) {
     case 'ready':
       context = { window: m.window, theme: m.theme, user: m.user };
+      reserved = Array.isArray(m.reserved) ? m.reserved : [];
       document.documentElement.dataset.theme = m.theme;
       announceReady(context);
       break;
@@ -57,6 +60,41 @@ function post(msg) {
   window.parent.postMessage(msg, '*');
 }
 
+// The shell's chords work while this frame has focus: the shell told us
+// which chords are reserved (with `ready`), we capture them before the app
+// sees them and hand them back. Everything else is the app's — including
+// anything registered with atrium.shortcuts.
+function chordOf(e) {
+  const mods = [];
+  if (e.ctrlKey) mods.push('Ctrl');
+  if (e.altKey) mods.push('Alt');
+  if (e.metaKey) mods.push('Meta');
+  if (e.shiftKey) mods.push('Shift');
+  let key = e.key;
+  if (key === ' ') key = 'Space';
+  if (key.length === 1) key = key.toUpperCase();
+  if (['Control', 'Alt', 'Shift', 'Meta'].includes(key)) return null;
+  return [...mods, key].join('+');
+}
+
+window.addEventListener('keydown', (e) => {
+  const chord = chordOf(e);
+  if (!chord) return;
+  if (reserved.includes(chord)) {
+    e.preventDefault();
+    e.stopPropagation();
+    post({ t: 'chord', chord });
+    return;
+  }
+  const fns = localShortcuts.get(chord);
+  if (fns && fns.length) {
+    e.preventDefault();
+    for (const fn of fns) {
+      try { fn(); } catch (err) { console.error('atrium shortcut handler:', err); }
+    }
+  }
+}, true);
+
 export const atrium = {
   /** Resolves with { window, theme, user } once the shell has answered. */
   ready() { return readyPromise; },
@@ -65,6 +103,15 @@ export const atrium = {
   on(event, fn) {
     if (!handlers.has(event)) handlers.set(event, []);
     handlers.get(event).push(fn);
+  },
+  /** App-local shortcuts, active while this window has focus. Chords the
+   *  shell has reserved are forwarded there instead and never fire here. */
+  shortcuts: {
+    on(chord, fn) {
+      const c = String(chord);
+      if (!localShortcuts.has(c)) localShortcuts.set(c, []);
+      localShortcuts.get(c).push(fn);
+    },
   },
   setTitle(title) { post({ t: 'set-title', title: String(title) }); },
   close() { post({ t: 'close' }); },
