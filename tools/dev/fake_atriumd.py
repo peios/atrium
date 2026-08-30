@@ -24,7 +24,7 @@ while True:
         if any(x['credential_ref']==7 and x['data']=='secret' for x in r['answers']):
             sid = 1000 + len(sessions)
             s_end, srv_end = socket.socketpair(socket.AF_UNIX, socket.SOCK_STREAM)
-            env = {'USER': users[r['conv']], 'ATRIUM_DISPLAY_NAME': 'Jack P', 'ATRIUM_SESSION': str(sid), 'ATRIUM_APPS_DIR': os.environ.get('ATRIUM_APPS_DIR',''), 'HOME': '/', 'PATH': '/usr/bin', 'LD_LIBRARY_PATH': os.environ.get('LD_LIBRARY_PATH','')}
+            env = {'USER': users[r['conv']], 'ATRIUM_DISPLAY_NAME': 'Jack P', 'ATRIUM_SESSION': str(sid), 'ATRIUM_APPS_DIR': os.environ.get('ATRIUM_APPS_DIR',''), 'HOME': '/', 'PATH': os.environ.get('PATH', '/usr/bin'), 'LD_LIBRARY_PATH': os.environ.get('LD_LIBRARY_PATH',''), 'FAKE_SVCTL_STATE': os.environ.get('FAKE_SVCTL_STATE','')}
             sp = subprocess.Popen([session_bin], pass_fds=[s_end.fileno(), 3], preexec_fn=lambda: os.dup2(s_end.fileno(), 3), env=env)
             s_end.close(); sessions[sid] = sp
             wr({'type':'granted','conv':r['conv'],'session':sid,'username':users[r['conv']],'display_name':'Jack P'}, srv_end.fileno())

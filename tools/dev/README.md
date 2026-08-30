@@ -15,8 +15,14 @@ with curl and a browser.
 - `wsclient.py COOKIE` — raw-socket websocket client for the session mirror.
 - `cdp.py COOKIE URL` — drives the Playwright Chromium in
   `~/.cache/ms-playwright` over CDP: sets the cookie, loads the shell,
-  clicks About, reports DOM state and console errors. Start Chromium with
-  `--headless=new --remote-debugging-port=9222` first.
+  clicks About, reports DOM state and console errors. COOKIE is the bare
+  cookie *value*, not `atrium=…`. Start Chromium with
+  `--headless=new --no-sandbox --remote-debugging-port=9222` first
+  (without `--no-sandbox` it aborts on this host).
+- `fakebin/` — put it first on PATH before `fake_atriumd.py` and apps that
+  exec `svctl` get the fake in `fakebin/svctl`: canned services, state in
+  `$FAKE_SVCTL_STATE`, failure modes via a `mode` key in that file.
+  `scen_services.py` drives the Services app against it.
 - `ffdrive.py COOKIE URL` — the same through geckodriver on :4444.
 - `CDP_SCENARIO=scen_windows.py cdp.py …` runs a scenario file instead of
   the default click-About check (`ev`, `time`, `logs` are in scope).

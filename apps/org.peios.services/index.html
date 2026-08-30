@@ -1,3 +1,367 @@
-<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Services</title>
-<style>:root{color-scheme:light dark;font-family:system-ui,sans-serif}body{margin:2rem}</style></head>
-<body><h1>Services</h1><p>Long-running services: status, restart, logs.</p><p><em>Placeholder — this app has no behaviour yet.</em></p></body></html>
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Services</title>
+<link rel="stylesheet" href="/shell/tokens.css">
+<style>
+  body { display: grid; place-items: start center; min-height: 100vh; }
+  main { width: min(56rem, calc(100vw - 3rem)); margin-top: clamp(20px, 5vh, 48px); margin-bottom: 48px; }
+  .eyebrow { font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.1em;
+             text-transform: uppercase; color: var(--c-text-3); }
+  h1 { font-size: 26px; font-weight: 600; letter-spacing: -0.02em; margin: 6px 0 4px; }
+  .sub { color: var(--c-text-2); font-size: 13.5px; margin-bottom: 18px; }
+
+  .banner {
+    border: 1px solid color-mix(in oklab, var(--c-err) 40%, transparent);
+    background: color-mix(in oklab, var(--c-err) 7%, var(--c-surface));
+    color: var(--c-text); border-radius: var(--radius); padding: 12px 14px;
+    font-size: 13px; margin-bottom: 14px;
+  }
+  .banner[hidden] { display: none; }
+
+  .card { background: var(--c-surface); border: 1px solid var(--c-border);
+          border-radius: var(--radius-lg); box-shadow: var(--shadow-1); overflow: hidden; }
+  .tablewrap { overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; font-size: var(--dens-fs); }
+  th { text-align: left; font-family: var(--font-mono); font-size: 10.5px;
+       letter-spacing: 0.08em; text-transform: uppercase; color: var(--c-text-3);
+       font-weight: 500; padding: 10px 14px; border-bottom: 1px solid var(--c-border); }
+  td { padding: 9px 14px; border-bottom: 1px solid var(--c-border); vertical-align: middle; }
+  tr:last-child td { border-bottom: none; }
+  tbody tr { cursor: pointer; }
+  tbody tr:hover { background: var(--c-surface-2); }
+  tbody tr.sel { background: var(--c-accent-2); }
+  .name { font-weight: 550; }
+  .id { font-family: var(--font-mono); font-size: 11px; color: var(--c-text-3); }
+  .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%;
+         margin-right: 7px; background: var(--c-text-3); vertical-align: 1px; }
+  .dot.ok   { background: var(--c-ok); }
+  .dot.err  { background: var(--c-err); }
+  .dot.busy { background: var(--c-info); animation: pulse 1.2s ease-in-out infinite; }
+  @keyframes pulse { 50% { opacity: 0.35; } }
+  .state, .cause, .health { font-family: var(--font-mono); font-size: 12px; color: var(--c-text-2); }
+  .health.bad { color: var(--c-err); }
+  .empty { padding: 28px 16px; text-align: center; color: var(--c-text-3); font-size: 13px; }
+
+  #detail { margin-top: 16px; padding: 16px 18px; }
+  #detail[hidden] { display: none; }
+  .dhead { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; margin-bottom: 4px; }
+  .dhead h2 { font-size: 17px; font-weight: 600; margin: 0; }
+  .dhead .id { font-size: 11.5px; }
+  .ddesc { color: var(--c-text-2); font-size: 13px; margin: 2px 0 12px; }
+  dl { display: grid; grid-template-columns: max-content 1fr; gap: 4px 18px;
+       margin: 0 0 14px; font-size: 12.5px; }
+  dt { font-family: var(--font-mono); font-size: 11px; color: var(--c-text-3);
+       text-transform: uppercase; letter-spacing: 0.06em; align-self: baseline; padding-top: 1px; }
+  dd { margin: 0; color: var(--c-text); overflow-wrap: anywhere; }
+  dd .mono, .mono { font-family: var(--font-mono); font-size: 12px; }
+  .removed { color: var(--c-warn); font-weight: 550; }
+  .warns { margin: 0 0 14px; padding-left: 18px; font-size: 12.5px; color: var(--c-warn); }
+  .actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  .actions button {
+    font: inherit; font-size: 13px; font-weight: 500; cursor: pointer;
+    padding: 7px 14px; border-radius: 999px;
+    border: 1px solid var(--c-border-2); background: var(--c-surface); color: var(--c-text);
+  }
+  .actions button:hover { background: var(--c-surface-2); }
+  .actions button:disabled { opacity: 0.5; cursor: default; }
+  .actions button.danger:hover { border-color: color-mix(in oklab, var(--c-err) 45%, transparent); color: var(--c-err); }
+  #action-err { color: var(--c-err); font-size: 12.5px; font-family: var(--font-mono); }
+  #action-err[hidden] { display: none; }
+</style>
+</head>
+<body>
+<main>
+  <div class="eyebrow">system</div>
+  <h1>Services</h1>
+  <div class="sub">Everything peinit supervises, live from <code>svctl</code>.</div>
+
+  <div id="banner" class="banner" hidden></div>
+
+  <div class="card">
+    <div class="tablewrap">
+      <table>
+        <thead>
+          <tr><th>Service</th><th>State</th><th>Health</th><th>Cause</th></tr>
+        </thead>
+        <tbody id="rows"></tbody>
+      </table>
+    </div>
+    <div id="empty" class="empty" hidden>
+      No services visible. Either none are defined, or this logon may query
+      none — peinit omits what you may not see.
+    </div>
+  </div>
+
+  <div id="detail" class="card" hidden>
+    <div class="dhead">
+      <h2 id="d-name"></h2>
+      <span id="d-id" class="id"></span>
+      <span id="d-removed" class="removed" hidden>definition removed</span>
+    </div>
+    <div id="d-desc" class="ddesc" hidden></div>
+    <dl id="d-facts"></dl>
+    <ul id="d-warns" class="warns" hidden></ul>
+    <div class="actions">
+      <button id="b-start">Start</button>
+      <button id="b-restart">Restart</button>
+      <button id="b-stop" class="danger">Stop</button>
+      <button id="b-reset" hidden>Reset</button>
+      <span id="action-err" hidden></span>
+    </div>
+  </div>
+</main>
+
+<script type="module">
+import { atrium } from '/shell/sdk.js';
+
+const $ = (id) => document.getElementById(id);
+const RUNNING = new Set(['active', 'reloading']);
+const TRANSIENT = new Set(['starting', 'stopping', 'reloading']);
+const BROKEN = new Set(['backoff', 'failed', 'abandoned']);
+const SATISFIED = new Set(['active', 'completed', 'skipped']);
+const RESETTABLE = new Set(['failed', 'abandoned']);
+
+let services = [];      // last good list
+let selected = null;    // service name
+let detail = null;      // last good status for selected
+let busy = false;       // an action is in flight
+let timer = null;
+
+// ---- svctl over the exec capability --------------------------------------
+
+// Runs svctl --json <args>, returns the parsed response object. svctl
+// prints the server's raw response line even for server errors (exit 1),
+// so parseable stdout wins over the exit code. Exit 69 is "could not
+// connect" — the socket admits SYSTEM and administrators only.
+async function svctl(...args) {
+  let out = '';
+  const done = await atrium.exec(['svctl', '--json', ...args],
+    (text, stream) => { if (stream !== 'stderr') out += text; });
+  const line = out.trim().split('\n').filter(Boolean).pop() || '';
+  try { return JSON.parse(line); } catch {}
+  if (done.exit_code === 69) throw new ConnectError();
+  throw new Error(line || `svctl exited ${done.exit_code ?? `signal ${done.exit_signal}`}`);
+}
+class ConnectError extends Error {
+  constructor() { super('peinit control socket unreachable'); }
+}
+
+// ---- rendering -----------------------------------------------------------
+
+function dotClass(state) {
+  if (RUNNING.has(state) || SATISFIED.has(state)) return 'dot ok';
+  if (TRANSIENT.has(state)) return 'dot busy';
+  if (BROKEN.has(state)) return 'dot err';
+  return 'dot';
+}
+
+function renderList() {
+  const rows = $('rows');
+  rows.textContent = '';
+  for (const s of services) {
+    const tr = document.createElement('tr');
+    tr.className = s.service === selected ? 'sel' : '';
+    tr.dataset.service = s.service;
+
+    const name = document.createElement('td');
+    const n = document.createElement('div');
+    n.className = 'name';
+    n.textContent = s.display_name || s.service;
+    name.appendChild(n);
+    if (s.display_name) {
+      const i = document.createElement('div');
+      i.className = 'id';
+      i.textContent = s.service;
+      name.appendChild(i);
+    }
+    if (s.description) name.title = s.description;
+
+    const state = document.createElement('td');
+    const dot = document.createElement('span');
+    dot.className = dotClass(s.state);
+    const st = document.createElement('span');
+    st.className = 'state';
+    st.textContent = s.state;
+    state.append(dot, st);
+
+    const health = document.createElement('td');
+    health.className = 'health' + (s.health === 'unhealthy' ? ' bad' : '');
+    health.textContent = s.health ?? '—';
+
+    const cause = document.createElement('td');
+    cause.className = 'cause';
+    cause.textContent = s.cause ?? '—';
+
+    tr.append(name, state, health, cause);
+    tr.addEventListener('click', () => select(s.service));
+    rows.appendChild(tr);
+  }
+  $('empty').hidden = services.length !== 0;
+}
+
+function fmtUptime(secs) {
+  if (secs == null) return null;
+  const d = Math.floor(secs / 86400), h = Math.floor(secs / 3600) % 24,
+        m = Math.floor(secs / 60) % 60, s = Math.floor(secs) % 60;
+  if (d) return `${d}d ${h}h ${m}m`;
+  if (h) return `${h}h ${m}m`;
+  if (m) return `${m}m ${s}s`;
+  return `${s}s`;
+}
+
+function fact(dl, label, value, mono = false) {
+  if (value == null || value === '') return;
+  const dt = document.createElement('dt');
+  dt.textContent = label;
+  const dd = document.createElement('dd');
+  if (mono) { const c = document.createElement('span'); c.className = 'mono'; c.textContent = value; dd.appendChild(c); }
+  else dd.textContent = value;
+  dl.append(dt, dd);
+}
+
+function renderDetail() {
+  const box = $('detail');
+  if (!selected || !detail) { box.hidden = true; return; }
+  box.hidden = false;
+
+  $('d-name').textContent = detail.display_name || detail.service;
+  $('d-id').textContent = detail.display_name ? detail.service : '';
+  $('d-removed').hidden = !detail.definition_removed;
+  const desc = $('d-desc');
+  desc.hidden = !detail.description;
+  desc.textContent = detail.description || '';
+
+  const dl = $('d-facts');
+  dl.textContent = '';
+  fact(dl, 'state', detail.state, true);
+  fact(dl, 'cause', detail.cause, true);
+  fact(dl, 'health', detail.health, true);
+  fact(dl, 'status', detail.status_text);
+  fact(dl, 'uptime', fmtUptime(detail.uptime_seconds));
+  if (detail.current_job) {
+    fact(dl, 'pid', detail.current_job.pid, true);
+    fact(dl, 'identity', detail.current_job.identity, true);
+  }
+  if (detail.current_operation) {
+    fact(dl, 'operation', `${detail.current_operation.type} (${detail.current_operation.source})`, true);
+  }
+
+  const warns = $('d-warns');
+  warns.textContent = '';
+  const list = Array.isArray(detail.warnings) ? detail.warnings : [];
+  for (const w of list) {
+    const li = document.createElement('li');
+    li.textContent = typeof w === 'string' ? w : `${w.type}: ${w.path}`;
+    warns.appendChild(li);
+  }
+  warns.hidden = list.length === 0;
+
+  const state = detail.state;
+  $('b-start').disabled = busy || RUNNING.has(state) || TRANSIENT.has(state);
+  $('b-stop').disabled = busy || state === 'inactive' || state === 'stopping';
+  $('b-restart').disabled = busy;
+  $('b-reset').hidden = !RESETTABLE.has(state);
+  $('b-reset').disabled = busy;
+}
+
+function showBanner(text) { const b = $('banner'); b.textContent = text; b.hidden = false; }
+function clearBanner() { $('banner').hidden = true; }
+
+// ---- data flow -----------------------------------------------------------
+
+let disconnected = false;
+
+async function refresh() {
+  try {
+    const res = await svctl('list');
+    if (res.status !== 'ok') throw new Error(`${res.code}: ${res.message}`);
+    disconnected = false;
+    clearBanner();
+    services = (res.services || []).slice()
+      .sort((a, b) => a.service.localeCompare(b.service));
+    renderList();
+    if (selected && !services.some((s) => s.service === selected)) {
+      selected = null; detail = null;
+    }
+    if (selected) await refreshDetail();
+    else renderDetail();
+  } catch (err) {
+    if (err instanceof ConnectError) {
+      disconnected = true;
+      showBanner('peinit refused the connection to its control socket. '
+        + 'Only SYSTEM and administrators may administer services; this '
+        + 'logon is not one of them, or peinit is not running.');
+    } else {
+      showBanner(`svctl list failed: ${err.message}`);
+    }
+  }
+  schedule();
+}
+
+async function refreshDetail() {
+  if (!selected) return;
+  try {
+    const res = await svctl('status', selected);
+    if (res.status !== 'ok') throw new Error(`${res.code}: ${res.message}`);
+    detail = res;
+    renderDetail();
+  } catch (err) {
+    // A vanished service or a lost right: fall back to the list view.
+    detail = null;
+    renderDetail();
+  }
+}
+
+function schedule() {
+  clearTimeout(timer);
+  const delay = document.hidden ? 30000 : (disconnected ? 10000 : 2500);
+  timer = setTimeout(refresh, delay);
+}
+
+async function select(name) {
+  selected = name;
+  renderList();
+  await refreshDetail();
+}
+
+async function act(verb, ...extra) {
+  if (!selected || busy) return;
+  busy = true;
+  $('action-err').hidden = true;
+  renderDetail();
+  try {
+    const res = await svctl(verb, selected, ...extra);
+    if (res.status === 'error') {
+      const e = $('action-err');
+      e.textContent = `${res.code}: ${res.message}`;
+      e.hidden = false;
+    }
+  } catch (err) {
+    const e = $('action-err');
+    e.textContent = err.message;
+    e.hidden = false;
+  } finally {
+    busy = false;
+  }
+  clearTimeout(timer);
+  await refresh();
+}
+
+$('b-start').addEventListener('click', () => act('start', '--wait'));
+$('b-stop').addEventListener('click', () => act('stop', '--wait'));
+$('b-restart').addEventListener('click', () => act('restart', '--wait'));
+$('b-reset').addEventListener('click', () => act('reset'));
+
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden) { clearTimeout(timer); refresh(); }
+});
+atrium.shortcuts.on('R', () => { clearTimeout(timer); refresh(); });
+
+await atrium.ready();
+refresh();
+</script>
+</body>
+</html>

@@ -1,7 +1,10 @@
 id = "org.peios.services"
 name = "Services"
-description = "Long-running services: status, restart, logs."
+description = "Long-running services: status, start, stop, restart."
 category = "Peios"
 color = "oklch(58% 0.16 155)"
 glyph = "play"
 entry = "index.html"
+
+[capabilities]
+exec = ["svctl"]

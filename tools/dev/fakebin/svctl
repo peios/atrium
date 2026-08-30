@@ -1,0 +1,142 @@
+#!/usr/bin/env python3
+"""A fake svctl for the dev harness, good enough for the Services app.
+
+Put tools/dev/fakebin on PATH before launching fake_atriumd.py and the
+session's exec capability finds this instead of the real thing. Speaks
+the --json subset the app uses: list, status, start/stop/restart
+(--wait accepted and ignored), reset.
+
+State lives in $FAKE_SVCTL_STATE (default /tmp/fake-svctl.json) so
+actions change what later lists report. Delete the file to reset.
+
+Modes, via a "mode" key in the state file (or $FAKE_SVCTL_MODE):
+  ok         — normal (default)
+  noconnect  — exit 69 with nothing on stdout (socket refused)
+  denied     — lifecycle verbs answer ACCESS_DENIED; queries still work
+"""
+import json, os, sys, time
+
+STATE = os.environ.get("FAKE_SVCTL_STATE", "/tmp/fake-svctl.json")
+
+DEFAULT = {
+    "mode": "ok",
+    "services": {
+        "registryd": {"state": "active", "cause": "dependency_start", "health": None,
+                      "display_name": None, "description": None, "pid": 71,
+                      "identity": "SYSTEM", "started": None},
+        "authd": {"state": "active", "cause": "explicit_start", "health": "healthy",
+                  "display_name": "Authentication Authority",
+                  "description": "Turns proofs of identity into logon sessions.",
+                  "pid": 102, "identity": "SYSTEM", "started": None},
+        "atriumd": {"state": "active", "cause": "explicit_start", "health": None,
+                    "display_name": "Atrium", "description": "The web session host.",
+                    "pid": 141, "identity": "SYSTEM", "started": None},
+        "eventd": {"state": "failed", "cause": "restart_budget_exhausted", "health": None,
+                   "display_name": "Event Log", "description": "Collects the event stream.",
+                   "pid": None, "identity": "SYSTEM", "started": None},
+        "cleanup": {"state": "inactive", "cause": None, "health": None,
+                    "display_name": None, "description": "Nightly tmp sweep.",
+                    "pid": None, "identity": "SYSTEM", "started": None},
+    },
+}
+
+
+def load():
+    try:
+        with open(STATE) as f:
+            return json.load(f)
+    except Exception:
+        state = json.loads(json.dumps(DEFAULT))
+        now = time.time()
+        for svc in state["services"].values():
+            if svc["state"] == "active":
+                svc["started"] = now - 4000
+        return state
+
+
+def save(state):
+    with open(STATE, "w") as f:
+        json.dump(state, f)
+
+
+def out(obj, code=0):
+    print(json.dumps(obj))
+    sys.exit(code)
+
+
+def err(code_name, message):
+    out({"status": "error", "code": code_name, "message": message}, 1)
+
+
+def list_entry(name, svc):
+    return {"service": name, "display_name": svc["display_name"],
+            "description": svc["description"], "state": svc["state"],
+            "cause": svc["cause"], "health": svc["health"]}
+
+
+def status_shape(name, svc):
+    running = svc["state"] in ("active", "reloading")
+    return {
+        "status": "ok", "service": name,
+        "display_name": svc["display_name"], "description": svc["description"],
+        "state": svc["state"], "cause": svc["cause"],
+        "status_text": "Listening." if running else None,
+        "current_job": ({"id": "01FAKE", "type": "service_main", "pid": svc["pid"],
+                         "started_at": "2026-08-30T00:00:00Z", "identity": svc["identity"]}
+                        if running else None),
+        "current_operation": None,
+        "health": svc["health"],
+        "uptime_seconds": int(time.time() - svc["started"]) if running and svc["started"] else None,
+        "definition_removed": False,
+        "warnings": [],
+    }
+
+
+def main():
+    args = [a for a in sys.argv[1:]]
+    flags = {a for a in args if a.startswith("--")}
+    words = [a for a in args if not a.startswith("--")]
+    if "--json" not in flags:
+        print("fake svctl: human output not implemented", file=sys.stderr)
+        sys.exit(64)
+    if not words:
+        sys.exit(64)
+    verb, name = words[0], (words[1] if len(words) > 1 else None)
+
+    state = load()
+    if not os.path.exists(STATE):
+        save(state)
+    mode = os.environ.get("FAKE_SVCTL_MODE") or state.get("mode", "ok")
+    if mode == "noconnect":
+        print("svctl: cannot connect to /run/services/peinit/control.sock", file=sys.stderr)
+        sys.exit(69)
+
+    services = state["services"]
+    if verb == "list":
+        out({"status": "ok",
+             "services": [list_entry(n, s) for n, s in sorted(services.items())]})
+    if name is None or name not in services:
+        err("UNKNOWN_SERVICE", f"no service {name!r}")
+    svc = services[name]
+    if verb == "status":
+        out(status_shape(name, svc))
+    if verb in ("start", "stop", "restart", "reset"):
+        if mode == "denied":
+            err("ACCESS_DENIED", f"caller lacks rights on {name}")
+        if verb in ("start", "restart"):
+            svc.update(state="active", cause="explicit_start",
+                       pid=4242, started=time.time())
+        elif verb == "stop":
+            svc.update(state="inactive", cause="explicit_stop", pid=None, started=None)
+        elif verb == "reset":
+            if svc["state"] not in ("failed", "abandoned"):
+                err("INVALID_STATE", f"{name} is not in a resettable state")
+            svc.update(state="inactive", cause="explicit_reset", pid=None, started=None)
+        save(state)
+        out({"status": "ok", "operation_id": "01FAKEOP", "service": name,
+             "state": svc["state"], "cause": svc["cause"], "warnings": []})
+    err("INVALID_COMMAND", f"fake svctl does not implement {verb!r}")
+
+
+if __name__ == "__main__":
+    main()
