@@ -119,6 +119,10 @@ impl State {
         id
     }
 
+    pub fn app_of_window(&self, win: u64) -> Option<String> {
+        self.windows.iter().find(|w| w.id == win).map(|w| w.app.clone())
+    }
+
     pub fn detach(&mut self, mirror: u64) {
         self.mirrors.retain(|m| m.id != mirror);
     }
@@ -177,10 +181,10 @@ impl State {
                 Ok(None)
             }
             Request::App { win, req, body } => {
-                if !self.windows.iter().any(|w| w.id == win) {
+                let Some(window) = self.windows.iter().find(|w| w.id == win) else {
                     return Err(format!("no such window: {win}"));
-                }
-                let reply = app_request(win, &body);
+                };
+                let reply = app_request(&window.app, &body);
                 Ok(Some(json!({ "t": "app.reply", "win": win, "req": req, "body": reply })))
             }
             Request::Close { id } => {
@@ -203,10 +207,11 @@ impl State {
 }
 
 /// Answer one app request. The session is the user, so everything here
-/// runs as them; `win` says which window asked, for the day requests are
-/// scoped per app. v0 knows one kind.
-fn app_request(_win: u64, body: &serde_json::Value) -> serde_json::Value {
+/// runs as them; `app` is which app's window asked — the unit capability
+/// checks apply to.
+fn app_request(app: &str, body: &serde_json::Value) -> serde_json::Value {
     let kind = body.get("kind").and_then(serde_json::Value::as_str).unwrap_or("");
+    let _ = app;
     match kind {
         "system-info" => {
             let read = |p: &str| std::fs::read_to_string(p).map(|s| s.trim().to_string()).unwrap_or_default();
@@ -230,6 +235,99 @@ fn app_request(_win: u64, body: &serde_json::Value) -> serde_json::Value {
     }
 }
 
+/// Cap on one exec's streamed output; past it the process is killed.
+const EXEC_OUTPUT_CAP: usize = 1024 * 1024;
+/// Cap on one exec's runtime.
+const EXEC_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(300);
+
+/// Run one `exec` request: spawn as the user (the session *is* the user),
+/// stream output to the asking mirror as `app.stream` frames, finish with
+/// the ordinary `app.reply`. The allowlist is the app's manifest: argv[0]
+/// must be listed (or the list holds "*"). No shell is involved — argv is
+/// exec'd as given.
+fn run_exec(win: u64, req: u64, app: String, body: serde_json::Value, writer: Arc<Mutex<UnixStream>>) {
+    let send = move |v: serde_json::Value| {
+        let mut w = writer.lock().unwrap_or_else(|p| p.into_inner());
+        let _ = ws::send_text(&mut *w, &v.to_string());
+    };
+    let fail = move |send: &dyn Fn(serde_json::Value), reason: String| {
+        send(json!({ "t": "app.reply", "win": win, "req": req, "body": { "error": reason } }));
+    };
+    let argv: Vec<String> = match body.get("cmd").and_then(serde_json::Value::as_array) {
+        Some(a) => a.iter().filter_map(|v| v.as_str().map(str::to_string)).collect(),
+        None => return fail(&send, "exec needs a cmd array".into()),
+    };
+    if argv.is_empty() || argv.iter().any(|a| a.contains(' ')) {
+        return fail(&send, "exec needs a non-empty cmd".into());
+    }
+    let allow = apps::exec_allowlist(&app);
+    let program = argv[0].clone();
+    if !allow.iter().any(|a| a == "*" || *a == program) {
+        return fail(&send, format!("{app} may not exec {program}: not in its manifest's capabilities.exec"));
+    }
+    std::thread::spawn(move || {
+        use std::io::Read;
+        use std::process::{Command, Stdio};
+        let started = std::time::Instant::now();
+        let mut child = match Command::new(&argv[0])
+            .args(&argv[1..])
+            .current_dir(std::env::var("HOME").unwrap_or_else(|_| "/".into()))
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+        {
+            Ok(c) => c,
+            Err(e) => return fail(&send, format!("could not run {}: {e}", argv[0])),
+        };
+        // stderr on its own thread; both streams feed the same sender.
+        let err_send = send.clone();
+        let mut stderr = child.stderr.take().expect("piped");
+        let err_thread = std::thread::spawn(move || {
+            let mut buf = [0u8; 8192];
+            let mut total = 0usize;
+            while let Ok(n) = stderr.read(&mut buf) {
+                if n == 0 || total > EXEC_OUTPUT_CAP {
+                    break;
+                }
+                total += n;
+                err_send(json!({ "t": "app.stream", "win": win, "req": req,
+                                 "body": { "stream": "stderr", "data": String::from_utf8_lossy(&buf[..n]) } }));
+            }
+        });
+        let mut stdout = child.stdout.take().expect("piped");
+        let mut buf = [0u8; 8192];
+        let mut total = 0usize;
+        let mut truncated = false;
+        loop {
+            if started.elapsed() > EXEC_TIMEOUT || total > EXEC_OUTPUT_CAP {
+                truncated = true;
+                let _ = child.kill();
+                break;
+            }
+            match stdout.read(&mut buf) {
+                Ok(0) | Err(_) => break,
+                Ok(n) => {
+                    total += n;
+                    send(json!({ "t": "app.stream", "win": win, "req": req,
+                                 "body": { "stream": "stdout", "data": String::from_utf8_lossy(&buf[..n]) } }));
+                }
+            }
+        }
+        let status = child.wait();
+        let _ = err_thread.join();
+        let (code, signal) = match &status {
+            Ok(s) => {
+                use std::os::unix::process::ExitStatusExt;
+                (s.code(), s.signal())
+            }
+            Err(_) => (None, None),
+        };
+        send(json!({ "t": "app.reply", "win": win, "req": req,
+                     "body": { "exit_code": code, "exit_signal": signal, "truncated": truncated } }));
+    });
+}
+
 /// Run one shell's websocket until it closes.
 pub fn serve(state: &Shared, mut conn: UnixStream) {
     // The read half is this thread's alone; the write half is shared with
@@ -241,6 +339,23 @@ pub fn serve(state: &Shared, mut conn: UnixStream) {
         match frame.opcode {
             ws::TEXT => {
                 let outcome = match serde_json::from_slice::<Request>(&frame.payload) {
+                    // exec streams; it gets the asker's writer and answers on
+                    // its own schedule. Everything else is synchronous.
+                    Ok(Request::App { win, req, body })
+                        if body.get("kind").and_then(serde_json::Value::as_str) == Some("exec") =>
+                    {
+                        let app = state
+                            .lock()
+                            .unwrap_or_else(|p| p.into_inner())
+                            .app_of_window(win);
+                        match app {
+                            Some(app) => {
+                                run_exec(win, req, app, body, Arc::clone(&writer));
+                                Ok(None)
+                            }
+                            None => Err(format!("no such window: {win}")),
+                        }
+                    }
                     Ok(req) => state.lock().unwrap_or_else(|p| p.into_inner()).handle(req),
                     Err(e) => Err(format!("bad request: {e}")),
                 };

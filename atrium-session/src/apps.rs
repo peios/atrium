@@ -34,6 +34,17 @@ struct ManifestFile {
     glyph: Option<String>,
     #[serde(default = "default_entry")]
     entry: String,
+    #[serde(default)]
+    capabilities: Capabilities,
+}
+
+/// What an app is allowed to ask the session for, from its manifest.
+#[derive(Debug, Default, Deserialize)]
+pub struct Capabilities {
+    /// Programs `exec` requests may run: argv[0] must equal one of these
+    /// (or the list holds "*"). Empty = the app may exec nothing.
+    #[serde(default)]
+    pub exec: Vec<String>,
 }
 
 fn default_entry() -> String {
@@ -68,6 +79,20 @@ fn valid_id(id: &str) -> bool {
         && !id.starts_with(['-', '.'])
         && !id.ends_with('.')
         && !id.contains("..")
+}
+
+/// The exec allowlist for one installed app, from its manifest. Read at
+/// request time, like the catalogue: the manifest on disk is the truth.
+pub fn exec_allowlist(app_id: &str) -> Vec<String> {
+    if !valid_id(app_id) {
+        return Vec::new();
+    }
+    let path = dir().join(app_id).join("manifest.toml");
+    let Ok(text) = std::fs::read_to_string(&path) else { return Vec::new() };
+    match toml::from_str::<ManifestFile>(&text) {
+        Ok(m) if m.id == app_id => m.capabilities.exec,
+        _ => Vec::new(),
+    }
 }
 
 pub fn catalogue() -> Vec<App> {

@@ -1,3 +1,57 @@
-<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Packages</title>
-<style>:root{color-scheme:light dark;font-family:system-ui,sans-serif}body{margin:2rem}</style></head>
-<body><h1>Packages</h1><p>Installed software, repositories, upgrades.</p><p><em>Placeholder — this app has no behaviour yet.</em></p></body></html>
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Packages</title>
+<link rel="stylesheet" href="/shell/tokens.css">
+<style>
+  body { display: grid; place-items: start center; min-height: 100vh; }
+  main { width: min(52rem, calc(100vw - 3rem)); margin-top: clamp(20px, 6vh, 60px); }
+  .eyebrow { font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.1em;
+             text-transform: uppercase; color: var(--c-text-3); }
+  h1 { font-size: 26px; font-weight: 600; letter-spacing: -0.02em; margin: 6px 0 4px; }
+  .sub { color: var(--c-text-2); font-size: 13.5px; margin-bottom: 18px; }
+  .row { display: flex; gap: 8px; margin-bottom: 14px; flex-wrap: wrap; }
+  button {
+    font: inherit; font-size: 13px; font-weight: 500; cursor: pointer;
+    padding: 8px 14px; border-radius: 999px;
+    border: 1px solid var(--c-border-2); background: var(--c-surface); color: var(--c-text);
+  }
+  button:hover { background: var(--c-surface-2); }
+  button:disabled { opacity: 0.5; cursor: default; }
+  pre {
+    background: var(--c-surface); border: 1px solid var(--c-border);
+    border-radius: var(--radius-lg); box-shadow: var(--shadow-1);
+    padding: 16px 18px; margin: 0 0 40px; min-height: 200px;
+    font-family: var(--font-mono); font-size: 12px; line-height: 1.55;
+    white-space: pre-wrap; overflow-wrap: anywhere; position: relative;
+  }
+  pre:empty::before { content: "Run something."; color: var(--c-text-3); font-family: var(--font-sans); }
+  pre[data-exit]::after {
+    content: "exit " attr(data-exit);
+    position: absolute; top: 10px; right: 12px;
+    font-family: var(--font-mono); font-size: 10.5px; color: var(--c-text-3);
+    border: 1px solid var(--c-border); border-radius: 999px; padding: 2px 8px;
+  }
+  pre[data-exit="0"]::after { color: var(--c-ok); border-color: color-mix(in oklab, var(--c-ok) 40%, transparent); }
+</style>
+</head>
+<body>
+<main>
+  <div class="eyebrow">software</div>
+  <h1>Packages</h1>
+  <div class="sub">What this machine runs, straight from <code>peipkg</code>. Wrapper-app style: these buttons are <code>data-atrium-exec</code> attributes — no scripting beyond the SDK.</div>
+  <div class="row">
+    <button data-atrium-exec="peipkg list" data-atrium-target="#out">Installed packages</button>
+    <button data-atrium-exec="peipkg repo list" data-atrium-target="#out">Repositories</button>
+    <button data-atrium-exec="peipkg --help" data-atrium-target="#out">Help</button>
+  </div>
+  <pre id="out"></pre>
+</main>
+<script type="module">
+  import { atrium } from '/shell/sdk.js';
+  await atrium.ready();
+</script>
+</body>
+</html>

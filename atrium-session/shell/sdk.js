@@ -45,11 +45,19 @@ window.addEventListener('message', (e) => {
       document.documentElement.dataset.theme = m.theme;
       emit('theme', m.theme);
       break;
+    case 'stream': {
+      const p = pending.get(m.req);
+      if (p && p.onStream) {
+        try { p.onStream(m.body); } catch (e) { console.error('atrium sdk stream handler:', e); }
+      }
+      break;
+    }
     case 'reply': {
       const p = pending.get(m.req);
       if (!p) return;
       pending.delete(m.req);
       if (m.error) p.reject(new Error(m.error));
+      else if (m.body && m.body.error) p.reject(new Error(m.body.error));
       else p.resolve(m.body);
       break;
     }
@@ -115,16 +123,51 @@ export const atrium = {
   },
   setTitle(title) { post({ t: 'set-title', title: String(title) }); },
   close() { post({ t: 'close' }); },
-  /** Send `body` to the session; resolves with the session's reply. */
-  request(body) {
+  /** Send `body` to the session; resolves with the session's reply.
+   *  `onStream(part)` receives interim parts for streaming kinds. */
+  request(body, onStream) {
     seq += 1;
     const req = seq;
     return new Promise((resolve, reject) => {
-      pending.set(req, { resolve, reject });
+      pending.set(req, { resolve, reject, onStream });
       post({ t: 'request', req, body });
     });
   },
+  /** Run a program as the user (argv array — no shell). The app's manifest
+   *  must allow argv[0] under [capabilities] exec. `onOutput(text, stream)`
+   *  receives output as it happens; resolves with {exit_code, exit_signal,
+   *  truncated}. */
+  exec(cmd, onOutput) {
+    return atrium.request({ kind: 'exec', cmd }, (part) => {
+      if (onOutput && part && typeof part.data === 'string') onOutput(part.data, part.stream);
+    });
+  },
 };
+
+// The declarative layer, for apps that are just buttons around commands:
+//   <button data-atrium-exec="peipkg list" data-atrium-target="#out">…
+// Output streams into the target as text; while running the trigger is
+// disabled; the exit status lands as a data attribute on the target.
+readyPromise.then(() => {
+  document.addEventListener('click', async (e) => {
+    const el = e.target.closest('[data-atrium-exec]');
+    if (!el || el.disabled) return;
+    // v1 split: whitespace, no quoting. A command that needs quoting is a
+    // program that should be run through the JS API.
+    const cmd = el.dataset.atriumExec.trim().split(/\s+/);
+    const target = el.dataset.atriumTarget ? document.querySelector(el.dataset.atriumTarget) : null;
+    if (target) { target.textContent = ''; delete target.dataset.exit; }
+    el.disabled = true;
+    try {
+      const done = await atrium.exec(cmd, (text) => { if (target) target.append(text); });
+      if (target) target.dataset.exit = done.exit_code ?? `signal ${done.exit_signal}`;
+    } catch (err) {
+      if (target) { target.textContent = String(err.message || err); target.dataset.exit = 'error'; }
+    } finally {
+      el.disabled = false;
+    }
+  });
+});
 
 // The handshake. Sent at import time: by the time an app can call anything,
 // hello is already on its way.

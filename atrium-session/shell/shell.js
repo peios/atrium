@@ -396,6 +396,7 @@ function connectSession() {
       case 'window.restored': { const e = session.windows.get(m.id); if (e) e.window.minimized = false; renderWindows(); break; }
       case 'window.titled': { const e = session.windows.get(m.id); if (e) { e.window.title = m.title; e.frame.title = m.title; } renderWindows(); break; }
       case 'app.reply': bus.deliverReply(m); break;
+      case 'app.stream': bus.deliverStream(m); break;
       case 'focus': session.focus = m.id; session.view = m.id !== null ? 'windows' : 'toolbox'; renderWindows(); break;
       case 'error': console.warn('session:', m.message); break;
     }
@@ -568,6 +569,10 @@ const bus = {
     for (const { frame } of session.windows.values()) {
       if (frame.contentWindow) frame.contentWindow.postMessage({ t: 'theme', theme }, '*');
     }
+  },
+  deliverStream(m) {
+    const entry = session.windows.get(m.win);
+    if (entry && entry.frame.contentWindow) entry.frame.contentWindow.postMessage({ t: 'stream', req: m.req, body: m.body }, '*');
   },
   deliverReply(m) {
     const entry = session.windows.get(m.win);
