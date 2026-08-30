@@ -23,14 +23,19 @@ def button(bid, wait=2.0):
     fr(f'(d.getElementById("{bid}").click(), 1)'); time.sleep(wait)
 def detail():
     return fr('({name: d.getElementById("d-name").textContent,'
-              ' state: [...d.querySelectorAll("#d-facts dd")][0]?.textContent,'
+              ' state: d.querySelector("#d-state")?.textContent,'
               ' startDis: d.getElementById("b-start").disabled,'
               ' stopDis: d.getElementById("b-stop").disabled,'
               ' resetHid: d.getElementById("b-reset").hidden,'
               ' err: d.getElementById("action-err").hidden ? null : d.getElementById("action-err").textContent})')
 
 print('rows:', fr('[...d.querySelectorAll("tbody tr")].map(r => r.dataset.service).join(",")'))
-print('eventd dot:', fr('d.querySelector(`tr[data-service="eventd"] .dot`).className'))
+print('pills:', fr('[...d.querySelectorAll(".pill")].map(p=>p.textContent.trim()).join(" | ")'))
+fr('(d.getElementById("q").value = "auth", d.getElementById("q").dispatchEvent(new Event("input")), 1)')
+print('filtered:', fr('[...d.querySelectorAll("tbody tr")].length'))
+fr('(d.getElementById("q").value = "", d.getElementById("q").dispatchEvent(new Event("input")), 1)')
+print('eyebrow:', fr('d.getElementById("host").textContent'))
+print('eventd badge:', fr('d.querySelector(`tr[data-service="eventd"] .badge`).className'))
 print('authd cell:', fr('d.querySelector(`tr[data-service="authd"] .name`).textContent'))
 
 clickrow('authd')

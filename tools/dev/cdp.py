@@ -13,10 +13,17 @@ def send(s, obj):
     else: hdr = bytes([0x81, 0x80 | 127]) + struct.pack('>Q', len(d))
     s.sendall(hdr + mask + bytes(b ^ mask[i % 4] for i, b in enumerate(d)))
 def recv(s):
-    h = s.recv(2, socket.MSG_WAITALL); n = h[1] & 0x7f
-    if n == 126: n = struct.unpack('>H', s.recv(2, socket.MSG_WAITALL))[0]
-    elif n == 127: n = struct.unpack('>Q', s.recv(8, socket.MSG_WAITALL))[0]
-    return json.loads(s.recv(n, socket.MSG_WAITALL))
+    # Assemble fragmented messages: big payloads (screenshots) arrive as a
+    # first frame plus continuation frames, FIN set only on the last.
+    buf = b''
+    while True:
+        h = s.recv(2, socket.MSG_WAITALL); fin = h[0] & 0x80; n = h[1] & 0x7f
+        if n == 126: n = struct.unpack('>H', s.recv(2, socket.MSG_WAITALL))[0]
+        elif n == 127: n = struct.unpack('>Q', s.recv(8, socket.MSG_WAITALL))[0]
+        while n:
+            chunk = s.recv(min(n, 1 << 20), socket.MSG_WAITALL)
+            buf += chunk; n -= len(chunk)
+        if fin: return json.loads(buf)
 cookie, url = sys.argv[1], sys.argv[2]
 tab = json.load(urllib.request.urlopen(urllib.request.Request('http://127.0.0.1:9222/json/new?about:blank', method='PUT')))
 s = ws_connect(tab['webSocketDebuggerUrl']); s.settimeout(15)
