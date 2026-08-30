@@ -345,12 +345,23 @@ function cmdk() {
 // only ever shown/hidden — re-parenting an iframe reloads the app.
 const session = {
   sock: null,
-  windows: new Map(),   // id -> { window, tab, frame }
+  windows: new Map(),   // id -> { window, frame, booted }
   focus: null,
   view: 'toolbox',      // this tab's choice: 'toolbox' | 'windows'
+  queue: [],            // sends made while the socket was still connecting
   send(msg) {
     if (this.sock && this.sock.readyState === 1) this.sock.send(JSON.stringify(msg));
-    else console.warn('session: not connected; dropped', msg);
+    else {
+      // Not connected (yet). Queue rather than drop: a click during the
+      // first half-second, or mid-reconnect, should simply happen when
+      // the socket is back.
+      console.info('session: queued until connected:', msg.t);
+      this.queue.push(msg);
+    }
+  },
+  flush() {
+    const q = this.queue.splice(0);
+    for (const msg of q) this.send(msg);
   },
   // Focuses the app's existing window unless `fresh`; the session decides.
   launch(appId, fresh = false) { this.view = 'windows'; this.send({ t: 'launch', app: appId, new: fresh }); },
@@ -359,6 +370,19 @@ const session = {
   minimize(id) { this.send({ t: 'minimize', id }); },
   close(id) { this.send({ t: 'close', id }); },
 };
+
+let wsFailures = 0;
+
+// A websocket that will not connect can mean the session itself is gone —
+// a stale cookie after the box rebooted, a logged-out session. Ask over
+// plain HTTP: if the answer is not "you're logged in", reload, which lands
+// on the login page and starts clean.
+async function checkSessionAlive() {
+  try {
+    const r = await fetch('/api/whoami', { cache: 'no-store' });
+    if (!r.ok || r.redirected) location.replace('/');
+  } catch { /* box unreachable; keep retrying the socket */ }
+}
 
 function connectSession() {
   const proto = location.protocol === 'https:' ? 'wss' : 'ws';
@@ -378,12 +402,26 @@ function connectSession() {
       case 'error': console.warn('session:', m.message); break;
     }
   });
-  sock.addEventListener('open', () => console.info('session: connected'));
+  sock.addEventListener('open', () => { console.info('session: connected'); wsFailures = 0; session.flush(); });
   sock.addEventListener('error', () => console.warn('session: websocket error'));
   sock.addEventListener('close', (e) => {
-    console.warn(`session: websocket closed (code ${e.code}${e.reason ? `, ${e.reason}` : ''}); reconnecting`);
     session.sock = null;
-    setTimeout(connectSession, 1500);
+    wsFailures += 1;
+    // Fast first retries, backing off to 3s; every third failure, check
+    // whether this session still exists at all.
+    const delay = Math.min(300 * wsFailures, 3000);
+    console.warn(`session: websocket closed (code ${e.code}${e.reason ? `, ${e.reason}` : ''}); retry in ${delay}ms`);
+    if (wsFailures % 3 === 0) checkSessionAlive();
+    setTimeout(connectSession, delay);
+  });
+}
+
+// Coming back to the tab, or the network coming back, is the moment to
+// stop waiting out a backoff.
+for (const evt of ['visibilitychange', 'online', 'focus']) {
+  addEventListener(evt, () => {
+    if (document.visibilityState === 'hidden') return;
+    if (!session.sock || session.sock.readyState === 3) connectSession();
   });
 }
 
