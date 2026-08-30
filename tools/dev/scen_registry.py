@@ -70,6 +70,19 @@ click('.tab[data-tab="security"]', 1.6)
 print('sddl:', fr('d.getElementById("sddl")?.textContent'))
 print('aces:', fr('d.querySelectorAll(".ace").length'))
 
+# Docs: value manual card in the inspector, key card in the Docs tab.
+click('.tab[data-tab="values"]', 0.8)
+click('.vrow[data-name="Theme"]', 1.6)
+print('value manual:', fr('(d.getElementById("insp-docs")?.textContent || "").includes("colour scheme")'))
+click('.vrow[data-name="SessionKey"]', 1.6)
+print('undocumented value has no card:', fr('!d.getElementById("insp-docs")'))
+click('.tab[data-tab="docs"]', 1.6)
+print('key docs:', fr('(d.getElementById("docs")?.textContent || "").slice(0, 40)'))
+click('.trow[data-path="CurrentUser"]', 1.6)
+print('no manual entry:', fr('(d.querySelector(".detail-body .dstate")?.textContent || "").slice(0, 30)'))
+click('.trow[data-path="Machine\\Software\\Peios\\Atrium"]', 1.2)
+click('.tab[data-tab="values"]', 0.8)
+
 # Denied key.
 click('.tab[data-tab="values"]', 0.5)
 click('.trow[data-path="Machine\\\\System"]')

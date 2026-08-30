@@ -7,4 +7,4 @@ glyph = "tree"
 entry = "index.html"
 
 [capabilities]
-exec = ["reg"]
+exec = ["reg", "regman"]

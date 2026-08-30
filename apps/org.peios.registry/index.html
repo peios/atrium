@@ -197,6 +197,18 @@
   .lrow.target { border-color: color-mix(in oklab, var(--c-accent) 45%, var(--c-border));
                  background: color-mix(in oklab, var(--c-accent) 7%, var(--c-surface)); }
   .mono { font-family: var(--font-mono); }
+
+  /* Docs (regman) */
+  .docs { font-family: var(--font-mono); font-size: 12px; line-height: 1.55;
+          background: var(--c-surface); border: 1px solid var(--c-border);
+          border-radius: var(--radius); padding: 14px 16px; white-space: pre-wrap;
+          overflow-wrap: anywhere; }
+  .insp-docs { border-top: 1px solid var(--c-border); padding-top: 10px; }
+  .insp-docs .hd { font-family: var(--font-mono); font-size: 10px; text-transform: uppercase;
+                   letter-spacing: 0.07em; color: var(--c-text-3); margin-bottom: 6px; }
+  .insp-docs pre { margin: 0; font-family: var(--font-mono); font-size: 11px; line-height: 1.5;
+                   white-space: pre-wrap; overflow-wrap: anywhere; color: var(--c-text-2);
+                   max-height: 220px; overflow-y: auto; }
 </style>
 </head>
 <body>
@@ -234,6 +246,7 @@
         <div class="tabs">
           <button class="tab active" data-tab="values">Values <span class="n" id="n-values">0</span></button>
           <button class="tab" data-tab="security">Security</button>
+          <button class="tab" data-tab="docs">Docs</button>
           <button class="tab" data-tab="info">Info</button>
         </div>
       </div>
@@ -272,7 +285,10 @@ let selected = null;      // key path
 let selectedValue = null; // value name ('' = default) or null
 let prov = null;          // {layer, sequence} for selected value
 let tab = 'values';
-let keyInfo = null, keySd = null;
+let keyInfo = null, keySd = null, keyDocs = null;
+const docCache = new Map();    // key path -> {text}|{notfound}|{error}
+const valDocCache = new Map(); // "path::name" -> {text}|null
+let valDocs = null;
 let layers = [];
 let editorOpen = false, newValueOpen = false, newKeyOpen = false;
 let pollTimer = null;
@@ -307,6 +323,17 @@ async function reg(...args) {
   try { return JSON.parse(out); } catch { throw new RegError(-1, `unparseable reg output: ${out.slice(0, 200)}`); }
 }
 const vaddr = (name) => name === '' ? '@' : name;
+
+// Runs regman <args>: plain text out (no --json exists), exit 2 = no entry.
+async function regman(...args) {
+  let out = '', err = '';
+  const done = await atrium.exec(['regman', ...args],
+    (text, stream) => { if (stream === 'stderr') err += text; else out += text; });
+  if (done.exit_code === 0) return out;
+  const e = new Error((err.trim() || `regman exited ${done.exit_code}`));
+  e.exit = done.exit_code;
+  throw e;
+}
 
 // ---- rendering helpers ----------------------------------------------------
 function chip(kw) {
@@ -434,12 +461,26 @@ async function selectKey(path, { toggle = false } = {}) {
   }
   selected = path;
   selectedValue = null; prov = null; keyInfo = null; keySd = null;
+  keyDocs = docCache.get(path) || null; valDocs = null;
   editorOpen = newValueOpen = newKeyOpen = false;
   renderTree(); renderDetail(); renderInspector();
   if (n.status === 'unloaded' || n.status === 'error' || n.status === 'notfound') await loadKey(path);
   else renderDetail();
   loadInfo();
   if (tab === 'security') loadSd();
+  if (tab === 'docs' && !keyDocs) loadKeyDocs();
+}
+
+async function loadKeyDocs() {
+  if (!selected) return;
+  const path = selected;
+  try {
+    keyDocs = { text: await regman(path) };
+  } catch (e) {
+    keyDocs = e.exit === 2 ? { notfound: true } : { error: e.message };
+  }
+  docCache.set(path, keyDocs);
+  if (tab === 'docs' && selected === path) renderDetail();
 }
 
 async function loadInfo() {
@@ -457,13 +498,22 @@ async function loadSd() {
 
 async function selectValue(name) {
   selectedValue = name; prov = null; editorOpen = false;
+  const path = selected;
+  const ck = `${path}::${name}`;
+  const current = () => selected === path && selectedValue === name;
+  valDocs = valDocCache.has(ck) ? valDocCache.get(ck) : null;
   renderDetail(); renderInspector();
-  try {
-    prov = await reg('get', selected, vaddr(name), '-L');
-  } catch (e) {
-    prov = { error: e.message, kind: e.kind };
+  const provP = reg('get', path, vaddr(name), '-L')
+    .then((r) => { if (current()) prov = r; })
+    .catch((e) => { if (current()) prov = { error: e.message, kind: e.kind }; });
+  if (!valDocCache.has(ck) && name !== '') {
+    let d = null;
+    try { d = { text: await regman(path, name) }; } catch {}
+    valDocCache.set(ck, d);
+    if (current()) valDocs = d;
   }
-  renderInspector();
+  await provP;
+  if (current()) renderInspector();
 }
 
 // ---- detail pane ----------------------------------------------------------
@@ -522,6 +572,7 @@ function renderDetail() {
 
   if (tab === 'values') renderValues(body, n);
   else if (tab === 'security') renderSecurity(body);
+  else if (tab === 'docs') renderDocs(body);
   else renderInfo(body);
 }
 
@@ -787,6 +838,22 @@ function renderSecurity(body) {
   body.appendChild(raw);
 }
 
+// ---- docs tab (regman) ----------------------------------------------------
+function renderDocs(body) {
+  if (!keyDocs) { body.innerHTML = '<div class="dstate">Looking the key up in the manual…</div>'; loadKeyDocs(); return; }
+  if (keyDocs.error) { body.innerHTML = `<div class="dstate denied">${esc(keyDocs.error)}</div>`; return; }
+  if (keyDocs.notfound) {
+    body.innerHTML = '<div class="dstate">No manual entry for this key.<br>'
+      + '<span style="font-size:11.5px">Packages document their keys with regman fragments under '
+      + '<span class="mono">/usr/share/regman</span>.</span></div>';
+    return;
+  }
+  const pre = document.createElement('div');
+  pre.className = 'docs'; pre.id = 'docs';
+  pre.textContent = keyDocs.text.trimEnd();
+  body.appendChild(pre);
+}
+
 // ---- info tab -------------------------------------------------------------
 function renderInfo(body) {
   if (!keyInfo) { body.innerHTML = '<div class="dstate">Loading…</div>'; return; }
@@ -837,6 +904,17 @@ function renderInspector() {
         pr.appendChild(seq);
       }
       box.appendChild(pr);
+
+      if (valDocs && valDocs.text) {
+        const dv = document.createElement('div');
+        dv.className = 'insp-docs'; dv.id = 'insp-docs';
+        const hd = document.createElement('div');
+        hd.className = 'hd'; hd.textContent = 'manual';
+        const preEl = document.createElement('pre');
+        preEl.textContent = valDocs.text.trimEnd();
+        dv.append(hd, preEl);
+        box.appendChild(dv);
+      }
 
       if (EDIT_TYPES.includes(v.type)) {
         if (!editorOpen) {
@@ -954,7 +1032,7 @@ async function loadLayers() {
 }
 
 function refreshNow() {
-  if (selected) loadKey(selected, { quiet: true });
+  if (selected) { docCache.delete(selected); keyDocs = null; loadKey(selected, { quiet: true }); }
   loadLayers();
   schedulePoll();
 }
@@ -975,6 +1053,7 @@ for (const t of document.querySelectorAll('.tab')) {
     tab = t.dataset.tab;
     for (const o of document.querySelectorAll('.tab')) o.classList.toggle('active', o === t);
     if (tab === 'security' && !keySd) loadSd();
+    if (tab === 'docs' && !keyDocs) loadKeyDocs();
     renderDetail();
   });
 }

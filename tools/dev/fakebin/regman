@@ -1,0 +1,63 @@
+#!/usr/bin/env python3
+"""A fake regman for the dev harness: knob cards for a couple of the fake
+registry's keys, exit 2 ("no manual entry") for everything else. Output
+mimics the real card shape: identity line, field block, prose, and a
+Values index on the key-level card."""
+import sys
+
+KEY = "machine\\software\\peios\\atrium"
+
+KEY_CARD = """Machine\\Software\\Peios\\Atrium                                  [atrium]
+
+Atrium's session-host configuration. Read when a session starts; the
+tuning values below apply live.
+
+Values
+  Theme        The shell's colour scheme; "dark" or "light".
+  ReconnectMs  Base delay between session-mirror reconnect attempts.
+"""
+
+VALUE_CARDS = {
+    "theme": """Machine\\Software\\Peios\\Atrium Theme                            [atrium]
+
+type: REG_SZ
+default: dark
+applies: live
+
+The shell's colour scheme. "dark" or "light"; anything else falls back
+to the browser's preference.
+""",
+    "reconnectms": """Machine\\Software\\Peios\\Atrium ReconnectMs                      [atrium]
+
+type: REG_DWORD
+default: 300
+applies: live
+
+Base delay, in milliseconds, between session-mirror reconnect
+attempts. Grows linearly with consecutive failures, capped at 3000.
+""",
+}
+
+
+def main():
+    args = [a for a in sys.argv[1:] if not a.startswith("-")]
+    if not args:
+        print("regman: usage: regman <path> [value]", file=sys.stderr)
+        sys.exit(1)
+    path = args[0].replace("/", "\\").lower()
+    value = args[1].lower() if len(args) > 1 else None
+    if path != KEY:
+        print(f"regman: no manual entry for {args[0]}", file=sys.stderr)
+        sys.exit(2)
+    if value is None:
+        sys.stdout.write(KEY_CARD)
+        sys.exit(0)
+    if value in VALUE_CARDS:
+        sys.stdout.write(VALUE_CARDS[value])
+        sys.exit(0)
+    print(f"regman: no manual entry for {args[0]} {args[1]}", file=sys.stderr)
+    sys.exit(2)
+
+
+if __name__ == "__main__":
+    main()
