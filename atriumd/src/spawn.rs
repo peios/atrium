@@ -144,6 +144,7 @@ pub fn spawn_session(
         "/"
     };
     let display_name = if profile.display_name.is_empty() { username } else { profile.display_name.as_str() };
+    let shell = if profile.shell.starts_with('/') { profile.shell.as_str() } else { "/bin/sh" };
     let definition = json!({
         "image_path": session_path(),
         "arguments": [],
@@ -154,6 +155,7 @@ pub fn spawn_session(
             "PATH": "/usr/bin:/bin",
             "ATRIUM_SESSION": session.to_string(),
             "ATRIUM_DISPLAY_NAME": display_name,
+            "SHELL": shell,
         },
         "working_directory": home,
         "description": format!("Atrium session for {username}"),

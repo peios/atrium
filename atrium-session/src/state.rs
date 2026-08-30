@@ -10,6 +10,8 @@
 //! Slice 5: a flat window list and a focus. The tiling tree, per-window
 //! state, and the SDK handshake grow from here.
 
+use std::collections::HashMap;
+use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
 use std::os::unix::net::UnixStream;
 use std::sync::{Arc, Mutex};
 
@@ -81,8 +83,20 @@ fn default_keymap() -> Vec<serde_json::Value> {
     map
 }
 
+/// A live pseudo-terminal: the master's write half and the shell's pid.
+/// Keyed by the opening request's id (per connection, but ids are minted
+/// per frame by the SDK and scoped here with the window id).
+pub struct Pty {
+    master: OwnedFd,
+    pid: libc::pid_t,
+    win: u64,
+}
+
+pub type PtyMap = Arc<Mutex<HashMap<(u64, u64), Pty>>>;
+
 #[derive(Default)]
 pub struct State {
+    pub ptys: PtyMap,
     windows: Vec<Window>,
     focus: Option<u64>,
     next_window: u64,
@@ -193,6 +207,19 @@ impl State {
                 if self.windows.len() == before {
                     return Err(format!("no such window: {id}"));
                 }
+                // A window's terminals die with it; the reader thread sees
+                // EOF and sends the final reply.
+                let mut ptys = self.ptys.lock().unwrap_or_else(|p| p.into_inner());
+                ptys.retain(|_, p| {
+                    if p.win == id {
+                        // SAFETY: signalling the shell's process group.
+                        unsafe { libc::kill(-p.pid, libc::SIGHUP) };
+                        false
+                    } else {
+                        true
+                    }
+                });
+                drop(ptys);
                 self.broadcast(&json!({ "t": "window.closed", "id": id }));
                 if self.focus == Some(id) {
                     // Focus falls to the most recently opened remaining
@@ -260,7 +287,7 @@ fn run_exec(win: u64, req: u64, app: String, body: serde_json::Value, writer: Ar
     if argv.is_empty() || argv.iter().any(|a| a.contains(' ')) {
         return fail(&send, "exec needs a non-empty cmd".into());
     }
-    let allow = apps::exec_allowlist(&app);
+    let allow = apps::capabilities(&app).exec;
     let program = argv[0].clone();
     if !allow.iter().any(|a| a == "*" || *a == program) {
         return fail(&send, format!("{app} may not exec {program}: not in its manifest's capabilities.exec"));
@@ -328,6 +355,113 @@ fn run_exec(win: u64, req: u64, app: String, body: serde_json::Value, writer: Ar
     });
 }
 
+/// Open a pseudo-terminal running the user's shell for window `win`,
+/// stream its output as `app.stream` frames, and answer the opening
+/// request only when the shell exits. Input and resizes arrive as later
+/// `pty-input` / `pty-resize` requests naming the opening request's id.
+fn run_pty(win: u64, req: u64, app: String, body: serde_json::Value, writer: Arc<Mutex<UnixStream>>, ptys: PtyMap) {
+    let send = move |v: serde_json::Value| {
+        let mut w = writer.lock().unwrap_or_else(|p| p.into_inner());
+        let _ = ws::send_text(&mut *w, &v.to_string());
+    };
+    let fail = move |send: &dyn Fn(serde_json::Value), reason: String| {
+        send(json!({ "t": "app.reply", "win": win, "req": req, "body": { "error": reason } }));
+    };
+    if !apps::capabilities(&app).pty {
+        return fail(&send, format!("{app} may not open a terminal: its manifest does not declare capabilities.pty"));
+    }
+    let cols = body.get("cols").and_then(serde_json::Value::as_u64).unwrap_or(80) as u16;
+    let rows = body.get("rows").and_then(serde_json::Value::as_u64).unwrap_or(24) as u16;
+    let mut master: libc::c_int = -1;
+    let mut slave: libc::c_int = -1;
+    let mut ws_size = libc::winsize { ws_row: rows, ws_col: cols, ws_xpixel: 0, ws_ypixel: 0 };
+    // SAFETY: openpty fills the two fds; the winsize is ours.
+    if unsafe { libc::openpty(&mut master, &mut slave, std::ptr::null_mut(), std::ptr::null_mut(), &mut ws_size) } != 0 {
+        return fail(&send, format!("openpty: {}", std::io::Error::last_os_error()));
+    }
+    // SAFETY: fresh fds from openpty.
+    let (master, slave) = unsafe { (OwnedFd::from_raw_fd(master), OwnedFd::from_raw_fd(slave)) };
+    let shell = std::env::var("SHELL").ok().filter(|s| s.starts_with('/')).unwrap_or_else(|| "/bin/sh".into());
+    let Ok(shell_c) = std::ffi::CString::new(shell.clone()) else {
+        return fail(&send, "bad shell path".into());
+    };
+    // The session has threads; between fork and exec only async-signal-safe
+    // calls happen.
+    // SAFETY: fork + setsid/ioctl/dup2/exec in the child, on fds we own.
+    let pid = unsafe { libc::fork() };
+    if pid < 0 {
+        return fail(&send, format!("fork: {}", std::io::Error::last_os_error()));
+    }
+    if pid == 0 {
+        // SAFETY: child; nothing below returns.
+        unsafe {
+            libc::setsid();
+            libc::ioctl(slave.as_raw_fd(), libc::TIOCSCTTY, 0);
+            libc::dup2(slave.as_raw_fd(), 0);
+            libc::dup2(slave.as_raw_fd(), 1);
+            libc::dup2(slave.as_raw_fd(), 2);
+            let term = c"TERM=xterm-256color";
+            libc::putenv(term.as_ptr() as *mut libc::c_char);
+            let argv = [shell_c.as_ptr(), std::ptr::null()];
+            libc::execv(shell_c.as_ptr(), argv.as_ptr());
+            libc::_exit(127);
+        }
+    }
+    drop(slave);
+    let Ok(reader) = master.try_clone() else {
+        return fail(&send, "could not clone the pty".into());
+    };
+    ptys.lock().unwrap_or_else(|p| p.into_inner()).insert((win, req), Pty { master, pid, win });
+    std::thread::spawn(move || {
+        use std::io::Read;
+        let mut f = std::fs::File::from(reader);
+        let mut buf = [0u8; 8192];
+        loop {
+            match f.read(&mut buf) {
+                // EIO is the normal end of a pty: the shell exited.
+                Ok(0) | Err(_) => break,
+                Ok(n) => {
+                    // Terminal bytes may be split mid-UTF-8; lossy is fine for
+                    // v1 and the terminal redraws constantly.
+                    send(json!({ "t": "app.stream", "win": win, "req": req,
+                                 "body": { "data": String::from_utf8_lossy(&buf[..n]) } }));
+                }
+            }
+        }
+        let mut status = 0;
+        // SAFETY: waitpid on our own child.
+        unsafe { libc::waitpid(pid, &mut status, 0) };
+        ptys.lock().unwrap_or_else(|p| p.into_inner()).remove(&(win, req));
+        let code = if libc::WIFEXITED(status) { Some(libc::WEXITSTATUS(status)) } else { None };
+        send(json!({ "t": "app.reply", "win": win, "req": req, "body": { "exit_code": code } }));
+    });
+}
+
+/// Write input or a resize to a window's open pty. Fire-and-forget: the
+/// SDK sends these with req 0 and expects no reply.
+fn pty_message(kind: &str, win: u64, body: &serde_json::Value, ptys: &PtyMap) {
+    let Some(target) = body.get("pty").and_then(serde_json::Value::as_u64) else { return };
+    let ptys = ptys.lock().unwrap_or_else(|p| p.into_inner());
+    let Some(pty) = ptys.get(&(win, target)) else { return };
+    match kind {
+        "pty-input" => {
+            if let Some(data) = body.get("data").and_then(serde_json::Value::as_str) {
+                use std::io::Write;
+                let mut f = std::mem::ManuallyDrop::new(unsafe { std::fs::File::from_raw_fd(pty.master.as_raw_fd()) });
+                let _ = f.write_all(data.as_bytes());
+            }
+        }
+        "pty-resize" => {
+            let cols = body.get("cols").and_then(serde_json::Value::as_u64).unwrap_or(80) as u16;
+            let rows = body.get("rows").and_then(serde_json::Value::as_u64).unwrap_or(24) as u16;
+            let size = libc::winsize { ws_row: rows, ws_col: cols, ws_xpixel: 0, ws_ypixel: 0 };
+            // SAFETY: ioctl on a pty master we own.
+            unsafe { libc::ioctl(pty.master.as_raw_fd(), libc::TIOCSWINSZ, &size) };
+        }
+        _ => {}
+    }
+}
+
 /// Run one shell's websocket until it closes.
 pub fn serve(state: &Shared, mut conn: UnixStream) {
     // The read half is this thread's alone; the write half is shared with
@@ -339,18 +473,27 @@ pub fn serve(state: &Shared, mut conn: UnixStream) {
         match frame.opcode {
             ws::TEXT => {
                 let outcome = match serde_json::from_slice::<Request>(&frame.payload) {
-                    // exec streams; it gets the asker's writer and answers on
-                    // its own schedule. Everything else is synchronous.
+                    // exec and pty stream; they get the asker's writer and
+                    // answer on their own schedule. pty-input/resize are
+                    // fire-and-forget. Everything else is synchronous.
                     Ok(Request::App { win, req, body })
-                        if body.get("kind").and_then(serde_json::Value::as_str) == Some("exec") =>
+                        if matches!(
+                            body.get("kind").and_then(serde_json::Value::as_str),
+                            Some("exec" | "pty-open" | "pty-input" | "pty-resize")
+                        ) =>
                     {
-                        let app = state
-                            .lock()
-                            .unwrap_or_else(|p| p.into_inner())
-                            .app_of_window(win);
+                        let kind = body.get("kind").and_then(serde_json::Value::as_str).unwrap_or("").to_string();
+                        let (app, ptys) = {
+                            let st = state.lock().unwrap_or_else(|p| p.into_inner());
+                            (st.app_of_window(win), Arc::clone(&st.ptys))
+                        };
                         match app {
                             Some(app) => {
-                                run_exec(win, req, app, body, Arc::clone(&writer));
+                                match kind.as_str() {
+                                    "exec" => run_exec(win, req, app, body, Arc::clone(&writer)),
+                                    "pty-open" => run_pty(win, req, app, body, Arc::clone(&writer), ptys),
+                                    other => pty_message(other, win, &body, &ptys),
+                                }
                                 Ok(None)
                             }
                             None => Err(format!("no such window: {win}")),

@@ -1,3 +1,69 @@
-<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Terminal</title>
-<style>:root{color-scheme:light dark;font-family:system-ui,sans-serif}body{margin:2rem}</style></head>
-<body><h1>Terminal</h1><p>Tabbed shell with splits and per-tab broadcast.</p><p><em>Placeholder — this app has no behaviour yet.</em></p></body></html>
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Terminal</title>
+<link rel="stylesheet" href="/shell/tokens.css">
+<link rel="stylesheet" href="/apps/org.peios.terminal/vendor/xterm.min.css">
+<style>
+  html, body { height: 100%; }
+  body { display: flex; flex-direction: column; background: var(--c-bg); }
+  #term { flex: 1; min-height: 0; padding: 8px 4px 4px 10px; }
+  .xterm { height: 100%; }
+  #gone {
+    display: none; place-items: center; flex: 1;
+    color: var(--c-text-3); font-size: 13.5px;
+  }
+  body.exited #term { display: none; }
+  body.exited #gone { display: grid; }
+</style>
+</head>
+<body>
+<div id="term"></div>
+<div id="gone">The shell exited. Close this window, or open a new terminal.</div>
+<script src="/apps/org.peios.terminal/vendor/xterm.min.js"></script>
+<script src="/apps/org.peios.terminal/vendor/addon-fit.min.js"></script>
+<script type="module">
+  import { atrium } from '/shell/sdk.js';
+  await atrium.ready();
+
+  const styles = getComputedStyle(document.documentElement);
+  const v = (name) => styles.getPropertyValue(name).trim();
+  const themeFor = () => ({
+    background: v('--c-bg'),
+    foreground: v('--c-text'),
+    cursor: v('--c-accent'),
+    selectionBackground: 'rgba(127,127,127,0.3)',
+  });
+
+  const term = new window.Terminal({
+    fontFamily: v('--font-mono') || 'monospace',
+    fontSize: 13,
+    theme: themeFor(),
+    cursorBlink: true,
+    allowProposedApi: true,
+  });
+  const fit = new window.FitAddon.FitAddon();
+  term.loadAddon(fit);
+  term.open(document.getElementById('term'));
+  fit.fit();
+  term.focus();
+
+  const shell = atrium.pty({
+    cols: term.cols,
+    rows: term.rows,
+    onData: (d) => term.write(d),
+  });
+  term.onData((d) => shell.write(d));
+  new ResizeObserver(() => {
+    fit.fit();
+    shell.resize(term.cols, term.rows);
+  }).observe(document.getElementById('term'));
+  atrium.on('theme', () => term.options.theme = themeFor());
+
+  shell.done.then(() => document.body.classList.add('exited'))
+            .catch((e) => { term.write(`\r\n${e.message}\r\n`); document.body.classList.add('exited'); });
+</script>
+</body>
+</html>

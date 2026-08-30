@@ -133,6 +133,24 @@ export const atrium = {
       post({ t: 'request', req, body });
     });
   },
+  /** A live terminal: the user's shell on a pseudo-terminal. Needs
+   *  [capabilities] pty in the manifest. Returns handles once open;
+   *  `done` resolves when the shell exits. */
+  pty({ cols = 80, rows = 24, onData } = {}) {
+    seq += 1;
+    const req = seq;
+    const done = new Promise((resolve, reject) => {
+      pending.set(req, { resolve, reject, onStream: (part) => {
+        if (onData && part && typeof part.data === 'string') onData(part.data);
+      } });
+      post({ t: 'request', req, body: { kind: 'pty-open', cols, rows } });
+    });
+    return {
+      write(data) { post({ t: 'request', req: 0, body: { kind: 'pty-input', pty: req, data: String(data) } }); },
+      resize(cols, rows) { post({ t: 'request', req: 0, body: { kind: 'pty-resize', pty: req, cols, rows } }); },
+      done,
+    };
+  },
   /** Run a program as the user (argv array — no shell). The app's manifest
    *  must allow argv[0] under [capabilities] exec. `onOutput(text, stream)`
    *  receives output as it happens; resolves with {exit_code, exit_signal,

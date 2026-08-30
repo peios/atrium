@@ -5,3 +5,6 @@ category = "Peios"
 color = "oklch(58% 0.16 232)"
 glyph = "terminal"
 entry = "index.html"
+
+[capabilities]
+pty = true

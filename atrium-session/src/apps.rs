@@ -45,6 +45,9 @@ pub struct Capabilities {
     /// (or the list holds "*"). Empty = the app may exec nothing.
     #[serde(default)]
     pub exec: Vec<String>,
+    /// May the app open a pseudo-terminal running the user's shell?
+    #[serde(default)]
+    pub pty: bool,
 }
 
 fn default_entry() -> String {
@@ -83,15 +86,15 @@ fn valid_id(id: &str) -> bool {
 
 /// The exec allowlist for one installed app, from its manifest. Read at
 /// request time, like the catalogue: the manifest on disk is the truth.
-pub fn exec_allowlist(app_id: &str) -> Vec<String> {
+pub fn capabilities(app_id: &str) -> Capabilities {
     if !valid_id(app_id) {
-        return Vec::new();
+        return Capabilities::default();
     }
     let path = dir().join(app_id).join("manifest.toml");
-    let Ok(text) = std::fs::read_to_string(&path) else { return Vec::new() };
+    let Ok(text) = std::fs::read_to_string(&path) else { return Capabilities::default() };
     match toml::from_str::<ManifestFile>(&text) {
-        Ok(m) if m.id == app_id => m.capabilities.exec,
-        _ => Vec::new(),
+        Ok(m) if m.id == app_id => m.capabilities,
+        _ => Capabilities::default(),
     }
 }
 
