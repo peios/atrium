@@ -1,0 +1,86 @@
+/* ============================================================
+   Atrium design tokens — served at /shell/tokens.css for apps.
+   The same tokens the shell chrome uses (Peios design system,
+   Console direction 1: cool slate + electric cyan). The SDK sets
+   data-theme on the app's root, so [data-theme] variants apply.
+   Link it first, then style with var(--c-*).
+   ============================================================ */
+:root {
+  color-scheme: light;
+  --c-bg:        #f7f8fa;
+  --c-surface:   #ffffff;
+  --c-surface-2: #f1f3f7;
+  --c-border:    #e3e6ec;
+  --c-border-2:  #d3d8e0;
+  --c-text:      #0f1420;
+  --c-text-2:    #4a5367;
+  --c-text-3:    #7b8498;
+  --c-accent:    oklch(68% 0.16 232);
+  --c-accent-2:  oklch(92% 0.05 232);
+  --c-accent-ink:oklch(30% 0.08 232);
+  --c-ok:        oklch(62% 0.14 155);
+  --c-warn:      oklch(72% 0.14 75);
+  --c-err:       oklch(58% 0.19 20);
+  --c-info:      oklch(62% 0.13 232);
+
+  /* The design names Inter Tight / JetBrains Mono; nothing is fetched from
+     the network, so these resolve to whatever the browser has. */
+  --font-sans: "Inter Tight", "InterVariable", "Inter", -apple-system, "Segoe UI", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+
+  --radius: 8px;
+  --radius-sm: 5px;
+  --radius-lg: 12px;
+  --shadow-1: 0 1px 0 rgba(15,20,32,0.04), 0 1px 2px rgba(15,20,32,0.05);
+  --shadow-2: 0 8px 24px -10px rgba(15,20,32,0.18), 0 2px 6px rgba(15,20,32,0.05);
+
+  --dens-pad: 16px;
+  --dens-row: 40px;
+  --dens-fs:  13.5px;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --c-bg:        #0b0d12;
+    --c-surface:   #12151c;
+    --c-surface-2: #191d26;
+    --c-border:    #222833;
+    --c-border-2:  #2c3340;
+    --c-text:      #e8ecf4;
+    --c-text-2:    #a8b0c1;
+    --c-text-3:    #6d7689;
+    --c-accent:    oklch(72% 0.17 232);
+    --c-accent-2:  oklch(28% 0.08 232);
+    --c-accent-ink:oklch(90% 0.05 232);
+    --shadow-1: 0 1px 0 rgba(0,0,0,0.3), 0 1px 2px rgba(0,0,0,0.4);
+    --shadow-2: 0 12px 32px -10px rgba(0,0,0,0.6), 0 2px 6px rgba(0,0,0,0.3);
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --c-bg:        #0b0d12;
+  --c-surface:   #12151c;
+  --c-surface-2: #191d26;
+  --c-border:    #222833;
+  --c-border-2:  #2c3340;
+  --c-text:      #e8ecf4;
+  --c-text-2:    #a8b0c1;
+  --c-text-3:    #6d7689;
+  --c-accent:    oklch(72% 0.17 232);
+  --c-accent-2:  oklch(28% 0.08 232);
+  --c-accent-ink:oklch(90% 0.05 232);
+  --shadow-1: 0 1px 0 rgba(0,0,0,0.3), 0 1px 2px rgba(0,0,0,0.4);
+  --shadow-2: 0 12px 32px -10px rgba(0,0,0,0.6), 0 2px 6px rgba(0,0,0,0.3);
+}
+
+
+/* Ground defaults so an app that links this starts in-system. */
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  font-family: var(--font-sans);
+  font-size: var(--dens-fs);
+  background: var(--c-bg);
+  color: var(--c-text);
+  -webkit-font-smoothing: antialiased;
+}

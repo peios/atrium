@@ -4,67 +4,172 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>About</title>
+<link rel="stylesheet" href="/shell/tokens.css">
 <style>
-  /* The design system's ground colours, keyed off data-theme, which the
-     SDK sets from the shell's theme before first paint completes. */
-  :root { color-scheme: light dark; font-family: system-ui, sans-serif;
-          --bg: #f8fafc; --fg: #0f172a; --muted: #64748b; --border: #e2e8f0; --card: #ffffff; }
-  :root[data-theme="dark"] { --bg: #0b1220; --fg: #e2e8f0; --muted: #94a3b8; --border: #1e293b; --card: #0f172a; }
-  body { margin: 0; background: var(--bg); color: var(--fg); display: grid; place-items: start center; min-height: 100vh; }
-  main { width: min(34rem, calc(100vw - 4rem)); margin-top: 12vh; }
-  h1 { font-size: 20px; font-weight: 600; letter-spacing: -0.015em; margin: 0 0 2px; }
-  .sub { color: var(--muted); font-size: 13px; margin-bottom: 18px; }
-  dl { display: grid; grid-template-columns: auto 1fr; gap: 8px 18px; margin: 0;
-       background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 16px 18px; font-size: 13.5px; }
-  dt { color: var(--muted); }
-  dd { margin: 0; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+  body { display: grid; place-items: start center; min-height: 100vh; }
+  main { width: min(46rem, calc(100vw - 3rem)); margin-top: clamp(24px, 9vh, 90px); }
+
+  .eyebrow { font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.1em;
+             text-transform: uppercase; color: var(--c-text-3); }
+  h1 { font-size: 30px; font-weight: 600; letter-spacing: -0.025em; margin: 6px 0 4px; }
+  .lede { color: var(--c-text-2); font-size: 14px; line-height: 1.55; max-width: 30rem; }
+  .lede b { color: var(--c-text); font-weight: 500; }
+
+  .hero {
+    display: grid; grid-template-columns: 1fr auto; gap: 24px; align-items: center;
+    background: var(--c-surface); border: 1px solid var(--c-border);
+    border-radius: var(--radius-lg); box-shadow: var(--shadow-1);
+    padding: 26px 28px; margin-top: 20px;
+    position: relative; overflow: hidden;
+  }
+  .hero::before {
+    content: ''; position: absolute; right: -60px; top: -60px; width: 240px; height: 240px;
+    border-radius: 50%; pointer-events: none;
+    background: radial-gradient(circle, color-mix(in oklab, var(--c-accent) 14%, transparent), transparent 70%);
+  }
+  .stats { display: flex; gap: 26px; margin-top: 22px; flex-wrap: wrap; }
+  .stat  { display: flex; flex-direction: column; gap: 3px; }
+  .stat .v { font-size: 19px; font-weight: 600; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
+  .stat .v small { font-size: 12px; color: var(--c-text-3); font-weight: 400; margin-left: 1px; }
+  .stat .k { font-size: 10.5px; color: var(--c-text-3); text-transform: uppercase; letter-spacing: 0.08em; }
+
+  /* The breathing ring: uptime as the machine's pulse. */
+  .breath { position: relative; width: 172px; height: 172px; }
+  .breath svg { width: 100%; height: 100%; }
+  .breath .center { position: absolute; inset: 0; display: grid; place-items: center; text-align: center; }
+  .breath .big { font-size: 27px; font-weight: 600; letter-spacing: -0.03em; line-height: 1;
+                 font-variant-numeric: tabular-nums; }
+  .breath .big small { font-size: 12px; color: var(--c-text-3); font-weight: 400; }
+  .breath .lbl { font-size: 10px; color: var(--c-text-3); text-transform: uppercase;
+                 letter-spacing: 0.09em; margin-top: 6px; }
+
+  dl {
+    display: grid; grid-template-columns: auto 1fr; gap: 10px 22px; margin: 18px 0 40px;
+    background: var(--c-surface); border: 1px solid var(--c-border);
+    border-radius: var(--radius-lg); box-shadow: var(--shadow-1);
+    padding: 20px 24px; font-size: 13px;
+  }
+  dt { color: var(--c-text-3); }
+  dd { margin: 0; font-family: var(--font-mono); font-size: 12.5px; color: var(--c-text-2);
+       overflow-wrap: anywhere; align-self: center; }
+  .hint { font-size: 11.5px; color: var(--c-text-3); margin-top: -28px; }
+  .hint kbd { font-family: var(--font-mono); font-size: 10.5px; border: 1px solid var(--c-border);
+              border-bottom-width: 2px; border-radius: 4px; padding: 1px 5px; background: var(--c-surface); }
 </style>
 </head>
 <body>
 <main>
-  <h1>Peios</h1>
-  <div class="sub" id="sub">…</div>
+  <div class="eyebrow">this machine</div>
+  <h1 id="hostname">…</h1>
+  <div class="lede" id="lede">…</div>
+
+  <section class="hero">
+    <div>
+      <div class="eyebrow" style="margin-bottom:2px">at a glance</div>
+      <div class="stats" id="stats"></div>
+    </div>
+    <div class="breath" aria-hidden="true">
+      <svg viewBox="0 0 200 200">
+        <defs>
+          <radialGradient id="g" cx="50%" cy="50%" r="50%">
+            <stop offset="0%" stop-color="oklch(68% 0.16 232)" stop-opacity="0.16"/>
+            <stop offset="100%" stop-color="oklch(68% 0.16 232)" stop-opacity="0"/>
+          </radialGradient>
+        </defs>
+        <circle cx="100" cy="100" r="72" fill="url(#g)"/>
+        <circle cx="100" cy="100" r="66" fill="none" stroke="var(--c-border)" stroke-width="1"/>
+        <circle cx="100" cy="100" r="63" fill="none" stroke="var(--c-accent)" stroke-width="2" opacity="0.7">
+          <animate attributeName="r" values="59;69;59" dur="4s" repeatCount="indefinite"/>
+          <animate attributeName="opacity" values="0.7;0.25;0.7" dur="4s" repeatCount="indefinite"/>
+        </circle>
+        <circle cx="100" cy="100" r="49" fill="var(--c-surface)" stroke="var(--c-accent)" stroke-width="1.5"/>
+      </svg>
+      <div class="center">
+        <div>
+          <div class="big" id="up-big">…</div>
+          <div class="lbl">uptime</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
   <dl id="facts"></dl>
+  <div class="hint">Live · refreshes itself, or press <kbd>R</kbd></div>
 </main>
 <script type="module">
   import { atrium } from '/shell/sdk.js';
 
-  const pretty = (secs) => {
-    const d = Math.floor(secs / 86400), h = Math.floor(secs / 3600) % 24, m = Math.floor(secs / 60) % 60;
-    return [d && `${d}d`, (d || h) && `${h}h`, `${m}m`].filter(Boolean).join(' ');
+  const $ = (id) => document.getElementById(id);
+  let info = null;          // last system-info
+  let syncedAt = 0;         // performance.now() when it arrived
+
+  const upSecs = () => info ? info.uptime_seconds + (performance.now() - syncedAt) / 1000 : 0;
+  const split = (secs) => {
+    const d = Math.floor(secs / 86400), h = Math.floor(secs / 3600) % 24,
+          m = Math.floor(secs / 60) % 60, s = Math.floor(secs) % 60;
+    if (d) return [`${d}`, `d ${h}h`];
+    if (h) return [`${h}`, `h ${m}m`];
+    if (m) return [`${m}`, `m ${s}s`];
+    return [`${s}`, 's'];
   };
 
+  function tick() {
+    if (!info) return;
+    const [big, small] = split(upSecs());
+    $('up-big').innerHTML = '';
+    $('up-big').append(big, Object.assign(document.createElement('small'), { textContent: ` ${small}` }));
+  }
+
+  function render(ctx) {
+    $('hostname').textContent = info.hostname || 'this machine';
+    const lede = $('lede');
+    lede.replaceChildren();
+    const b = (t) => Object.assign(document.createElement('b'), { textContent: t });
+    const [n, u] = split(upSecs());
+    lede.append('A ', b('Peios'), ' machine, serving your session through ', b(`Atrium ${info.atrium_version}`),
+      '. It has been running without incident for ', b(`${n}${u}`.replace(/ $/, '')), '.');
+    const stats = $('stats');
+    stats.replaceChildren();
+    const stat = (v, small, k) => {
+      const d = document.createElement('div'); d.className = 'stat';
+      const vv = document.createElement('div'); vv.className = 'v'; vv.textContent = v;
+      if (small) vv.append(Object.assign(document.createElement('small'), { textContent: small }));
+      const kk = document.createElement('div'); kk.className = 'k'; kk.textContent = k;
+      d.append(vv, kk); stats.append(d);
+    };
+    stat(info.kernel.split('-')[0], '', 'kernel');
+    stat(info.user, '', 'user');
+    stat(info.logon_session, '', 'logon session');
+    stat(String(info.session_pid), '', 'session pid');
+    const facts = [
+      ['Hostname', info.hostname],
+      ['Kernel', info.kernel],
+      ['User', info.display_name && info.display_name !== info.user ? `${info.display_name} (${info.user})` : info.user],
+      ['Logon session', info.logon_session],
+      ['Session host pid', info.session_pid],
+      ['Window', ctx.window],
+      ['Atrium', info.atrium_version],
+    ];
+    const dl = $('facts');
+    dl.replaceChildren();
+    for (const [k, v] of facts) {
+      if (v === '' || v === undefined) continue;
+      dl.append(Object.assign(document.createElement('dt'), { textContent: k }),
+                Object.assign(document.createElement('dd'), { textContent: v }));
+    }
+    tick();
+  }
+
   const ctx = await atrium.ready();
-  // R refreshes, while this window has focus: the SDK's local shortcuts,
-  // here mostly to prove they coexist with the shell's reserved chords.
-  atrium.shortcuts.on('R', load);
-  let info;
   async function load() {
     info = await atrium.request({ kind: 'system-info' });
-    render();
+    syncedAt = performance.now();
+    render(ctx);
   }
-  function render() {
-  document.getElementById('sub').textContent =
-    `Atrium ${info.atrium_version} on ${info.hostname || 'this machine'}`;
-  const facts = [
-    ['Hostname', info.hostname],
-    ['Kernel', info.kernel],
-    ['Uptime', pretty(info.uptime_seconds)],
-    ['User', info.display_name && info.display_name !== info.user ? `${info.display_name} (${info.user})` : info.user],
-    ['Logon session', info.logon_session],
-    ['Session host pid', info.session_pid],
-    ['Window', ctx.window],
-  ];
-  const dl = document.getElementById('facts');
-  dl.replaceChildren();
-  for (const [k, v] of facts) {
-    if (v === '' || v === undefined) continue;
-    const dt = document.createElement('dt'); dt.textContent = k;
-    const dd = document.createElement('dd'); dd.textContent = v;
-    dl.append(dt, dd);
-  }
-  }
+  atrium.shortcuts.on('R', load);
   await load();
+  setInterval(tick, 1000);       // the ring counts by itself
+  setInterval(load, 60_000);     // and re-syncs with the box once a minute
 </script>
 </body>
 </html>
