@@ -1,0 +1,11 @@
+[package]
+name         = "dev.peios.atrium-debugsource"
+architecture = "noarch"
+description  = "Atrium runtime debug sources"
+
+[dependencies]
+"dev.peios.atrium-debuginfo" = "{{version}}"
+
+[files]
+"@source:LICENSE"       = "usr/share/licenses/dev.peios.atrium-debugsource/LICENSE"
+":usr/src/debug/**"     = "usr/src/debug"

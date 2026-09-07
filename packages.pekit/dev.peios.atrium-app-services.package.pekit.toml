@@ -1,0 +1,12 @@
+[package]
+name         = "dev.peios.atrium-app-services"
+architecture = "noarch"
+description  = "Atrium application for service status and control"
+
+[dependencies]
+"dev.peios.atrium-core" = "{{version}}"
+peinit                     = "*"
+
+[files]
+"@source:LICENSE"                            = "usr/share/licenses/dev.peios.atrium-app-services/LICENSE"
+":usr/share/atrium/apps/org.peios.services/**" = "usr/share/atrium/apps/org.peios.services"

@@ -1,0 +1,29 @@
+# The default Atrium product. Keeping this as a small meta package makes a
+# minimal core-only composition possible while preserving the expected
+# `install Atrium` result: the shell plus every production-ready first-party
+# application from this release.
+
+[package]
+name         = "dev.peios.atrium"
+architecture = "noarch"
+description  = "Peios web user interface and default application set"
+
+[provides]
+atriumd = "{{version}}-2"
+
+[replaces]
+# The former monolithic package contained the core and all bundled apps.
+atriumd = "<= {{version}}-1"
+
+[dependencies]
+"dev.peios.atrium-core"         = "{{version}}"
+"dev.peios.atrium-app-about"    = "{{version}}"
+"dev.peios.atrium-app-packages" = "{{version}}"
+"dev.peios.atrium-app-registry" = "{{version}}"
+"dev.peios.atrium-app-services" = "{{version}}"
+"dev.peios.atrium-app-terminal" = "{{version}}"
+
+# Peipkg deliberately rejects a package with no payload. The product license
+# is a real, harmless ownership anchor for this dependency-only default set.
+[files]
+"@source:LICENSE" = "usr/share/licenses/dev.peios.atrium/LICENSE"

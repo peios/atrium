@@ -1,0 +1,23 @@
+# Atrium's three executables are separate security roles, not separate
+# products. atriumd cannot provide a supported service without the server and
+# session helpers, and neither helper has a standalone lifecycle, so they must
+# upgrade atomically in one package.
+
+[package]
+name        = "dev.peios.atrium-core"
+description = "Peios web session host runtime"
+
+[dependencies]
+# atriumd is a PGSS Logon client and submits each interactive session as a
+# peinit job. Its service definition also orders itself after lpsd so prompts
+# have a local principal source that can answer them.
+authd  = "*"
+lpsd   = "*"
+peinit = "*"
+
+[files]
+"@source:LICENSE"                              = "usr/share/licenses/dev.peios.atrium-core/LICENSE"
+":usr/sbin/atriumd"                            = "usr/sbin/atriumd"
+":usr/libexec/atrium/atrium-server"            = "usr/libexec/atrium/atrium-server"
+":usr/libexec/atrium/atrium-session"           = "usr/libexec/atrium/atrium-session"
+":usr/share/regim/atriumd-service.reg"         = "usr/share/regim/atriumd-service.reg"

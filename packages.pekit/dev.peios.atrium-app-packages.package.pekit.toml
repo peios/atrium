@@ -1,0 +1,12 @@
+[package]
+name         = "dev.peios.atrium-app-packages"
+architecture = "noarch"
+description  = "Atrium application for installed software and repositories"
+
+[dependencies]
+"dev.peios.atrium-core" = "{{version}}"
+peipkg                    = "*"
+
+[files]
+"@source:LICENSE"                            = "usr/share/licenses/dev.peios.atrium-app-packages/LICENSE"
+":usr/share/atrium/apps/org.peios.packages/**" = "usr/share/atrium/apps/org.peios.packages"

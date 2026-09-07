@@ -1,11 +1,12 @@
-# Base metadata for the packages carved from the atrium build tree.
-#
-#   atriumd    the web session host. Runs as LocalService for now; serves
-#              the browser-delivered session on port 8080.
+# Base metadata for the packages carved from the Atrium build tree. Atrium is
+# a product family: an installable default-product meta package, the
+# architecture-specific core, independently installable noarch applications,
+# and the conventional debug/source artifacts.
 
 format = "peipkg"
 
 [package]
-version      = "{{version}}-1"
+version      = "{{version}}-2"
 architecture = "x86_64"
 license      = "MIT"
+license_class = "free"

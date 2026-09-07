@@ -1,0 +1,13 @@
+[package]
+name         = "dev.peios.atrium-app-terminal"
+architecture = "noarch"
+description  = "Atrium terminal application"
+
+[dependencies]
+"dev.peios.atrium-core" = "{{version}}"
+sh                         = "*"
+
+[files]
+"@source:LICENSE" = "usr/share/licenses/dev.peios.atrium-app-terminal/LICENSE"
+"@source:apps/org.peios.terminal/vendor/LICENSE.xterm.js" = "usr/share/licenses/dev.peios.atrium-app-terminal/LICENSE.xterm.js"
+":usr/share/atrium/apps/org.peios.terminal/**" = "usr/share/atrium/apps/org.peios.terminal"

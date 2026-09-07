@@ -1,0 +1,11 @@
+[package]
+name         = "dev.peios.atrium-app-about"
+architecture = "noarch"
+description  = "Atrium application for machine and session information"
+
+[dependencies]
+"dev.peios.atrium-core" = "{{version}}"
+
+[files]
+"@source:LICENSE"                         = "usr/share/licenses/dev.peios.atrium-app-about/LICENSE"
+":usr/share/atrium/apps/org.peios.about/**" = "usr/share/atrium/apps/org.peios.about"

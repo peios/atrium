@@ -1,85 +1,253 @@
-# atrium — the Peios web session host: atriumd (SYSTEM), atrium-server
-# (unprivileged, spawned by atriumd) and atrium-session (one per logon, as
-# the user). One cargo workspace, one package; see packages.pekit/.
-#
-# The libpeios bootstrap mirrors netd's and resolvd's: pkg-config rather than
-# PEIOS_LIB_DIR, and a synthesized peios.pc from the sibling trees when
-# libpeios-devel is not installed in the build root. libauthd is a path
-# dependency on the sibling authd tree (the PGSS Logon codec), as login's is.
+# Atrium — Peios's browser-delivered interactive session. The three native
+# executables are one atomic core; independently installable applications and
+# conventional debug/source artifacts are carved from the same build tree by
+# packages.pekit/.
 
 out_dir = "out"
 
-[build]
-command = """
+[source_package]
+name = "dev.peios.atrium-source"
+
+[build.main]
+command = '''
 set -eu
 set -o pipefail 2>/dev/null || true
 
-SRC="$(pwd)"
-REPO_ROOT="$(cd "$SRC/.." && pwd)"
+SRC=$(pwd)
+REPO_ROOT=$(cd "$SRC/.." && pwd)
 
-for tool in cargo rustc gcc pkg-config; do
-  command -v "$tool" >/dev/null || { echo "missing required atrium build tool: $tool" >&2; exit 1; }
+for tool in cargo rustc gcc pkg-config python3 objcopy strip readelf debugedit; do
+  command -v "$tool" >/dev/null || {
+    echo "atrium: missing required build tool: $tool" >&2
+    exit 1
+  }
 done
 
-unset PEIOS_LIB_DIR PEIOS_INCLUDE PKM_UAPI
+# One source release is one Atrium product family. Refuse an externally
+# supplied package version that does not exactly match every workspace crate;
+# this prevents a tag/wrapper mistake from producing plausible but falsely
+# versioned artifacts.
+cargo metadata --locked --offline --no-deps --format-version 1 |
+  python3 -c '
+import json, os, sys
+metadata = json.load(sys.stdin)
+members = set(metadata["workspace_members"])
+versions = sorted({p["version"] for p in metadata["packages"] if p["id"] in members})
+expected = os.environ["PEKIT_VERSION"]
+if versions != [expected]:
+    raise SystemExit(f"atrium: workspace versions {versions!r} do not equal package version {expected!r}")
+'
 
-if ! pkg-config --exists peios; then
-  LIBPEIOS_ROOT="$REPO_ROOT/libpeios"
-  PKM_UAPI_ROOT="$REPO_ROOT/pkm/out/build/headers/usr/include"
-  [ -f "$LIBPEIOS_ROOT/Cargo.toml" ] || { echo "libpeios not found at $LIBPEIOS_ROOT" >&2; exit 1; }
-  [ -d "$LIBPEIOS_ROOT/include/peios" ] || { echo "libpeios headers not found" >&2; exit 1; }
-  [ -d "$PKM_UAPI_ROOT/pkm" ] || { echo "pkm UAPI headers not found at $PKM_UAPI_ROOT" >&2; exit 1; }
-  cargo build --release --locked --manifest-path "$LIBPEIOS_ROOT/Cargo.toml"
-  PC_DIR="$PEKIT_OUT/pkgconfig"
-  mkdir -p "$PC_DIR"
-  LIBPEIOS_VERSION="$(sed -n 's/^version = "\\([^"]*\\)".*/\\1/p' "$LIBPEIOS_ROOT/Cargo.toml" | head -1)"
-  {
-    printf 'prefix=%s\\n' "$LIBPEIOS_ROOT"
-    printf 'exec_prefix=${prefix}\\n'
-    printf 'libdir=%s/target/release\\n' "$LIBPEIOS_ROOT"
-    printf 'includedir=%s/include\\n' "$LIBPEIOS_ROOT"
-    printf '\\n'
-    printf 'Name: peios\\n'
-    printf 'Description: Peios userspace C ABI library (libpeios)\\n'
-    printf 'Version: %s\\n' "$LIBPEIOS_VERSION"
-    printf 'Libs: -L${libdir} -lpeios\\n'
-    printf 'Cflags: -I${includedir} -I%s\\n' "$PKM_UAPI_ROOT"
-  } > "$PC_DIR/peios.pc"
-  export PKG_CONFIG_PATH="$PC_DIR${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}"
-fi
+# A release build consumes the packaged C ABI. A sibling checkout is not a
+# declared build input and must never silently become one. The remaining Cargo
+# path dependencies are tracked below as the last source-hermeticity blocker.
+unset PEIOS_LIB_DIR PEIOS_INCLUDE PKM_UAPI
+pkg-config --exists peios || {
+  echo "atrium: libpeios-devel (peios.pc) is required" >&2
+  exit 1
+}
 
 export BINDGEN_EXTRA_CLANG_ARGS="-isystem $(gcc -print-file-name=include) ${BINDGEN_EXTRA_CLANG_ARGS:-}"
+# Keep absolute sibling-checkout paths out of the statically linked crates'
+# DWARF. Atrium's own paths are rewritten and collected by debugedit below.
+export RUSTFLAGS="${RUSTFLAGS:+$RUSTFLAGS }--remap-path-prefix=$REPO_ROOT/peios-rs=/usr/src/debug/dev.peios.peios-rs --remap-path-prefix=$REPO_ROOT/authd=/usr/src/debug/dev.peios.authd"
 
-cargo build --release --locked --bin atriumd --bin atrium-server --bin atrium-session --target-dir "$PEKIT_OUT/target"
+# Run the complete unit suite against the exact locked dependency graph. The
+# jobs-client test is normally conditional; give it a disposable PSPU jobs
+# endpoint so it exercises descriptor passing, pidfd completion, and stop.
+FAKE_JOBS="$PEKIT_OUT/fake-peinit.sock"
+python3 "$SRC/tools/dev/fake_peinit.py" "$FAKE_JOBS" >"$PEKIT_OUT/fake-peinit.log" 2>&1 &
+FAKE_PID=$!
+cleanup_fake() {
+  kill "$FAKE_PID" 2>/dev/null || true
+  wait "$FAKE_PID" 2>/dev/null || true
+}
+trap cleanup_fake EXIT HUP INT TERM
+i=0
+while [ ! -S "$FAKE_JOBS" ]; do
+  kill -0 "$FAKE_PID" 2>/dev/null || {
+    cat "$PEKIT_OUT/fake-peinit.log" >&2
+    exit 1
+  }
+  i=$((i + 1))
+  [ "$i" -lt 200 ] || {
+    echo "atrium: timed out waiting for fake peinit" >&2
+    exit 1
+  }
+  sleep 0.05
+done
+ATRIUM_JOBS_SOCKET="$FAKE_JOBS" \
+  cargo test --release --workspace --locked --offline --target-dir "$PEKIT_OUT/target"
+cleanup_fake
+trap - EXIT HUP INT TERM
+rm -f "$FAKE_JOBS" "$PEKIT_OUT/fake-peinit.log"
+
+cargo build --release --locked --offline \
+  --bin atriumd --bin atrium-server --bin atrium-session \
+  --target-dir "$PEKIT_OUT/target"
 
 mkdir -p "$PEKIT_OUT/usr/sbin" "$PEKIT_OUT/usr/libexec/atrium"
 install -m 0755 "$PEKIT_OUT/target/release/atriumd" "$PEKIT_OUT/usr/sbin/atriumd"
-# Machine-facing, spawned by atriumd only: libexec, not on PATH.
 install -m 0755 "$PEKIT_OUT/target/release/atrium-server" "$PEKIT_OUT/usr/libexec/atrium/atrium-server"
 install -m 0755 "$PEKIT_OUT/target/release/atrium-session" "$PEKIT_OUT/usr/libexec/atrium/atrium-session"
 
-# The first-party apps: one directory per app under the catalogue root
-# atrium-session scans. Placeholders until each grows behaviour.
-mkdir -p "$PEKIT_OUT/usr/share/atrium/apps"
-cp -R "$SRC/apps/." "$PEKIT_OUT/usr/share/atrium/apps/"
-find "$PEKIT_OUT/usr/share/atrium/apps" -type f -exec chmod 0644 {} +
-find "$PEKIT_OUT/usr/share/atrium/apps" -type d -exec chmod 0755 {} +
+# Applications are ordinary catalogue packages. Ship only the five complete
+# applications; explicit placeholders are source material, not production UI.
+APPS="$PEKIT_OUT/usr/share/atrium/apps"
+mkdir -p "$APPS"
+for id in \
+  org.peios.about \
+  org.peios.packages \
+  org.peios.registry \
+  org.peios.services \
+  org.peios.terminal
+do
+  cp -R "$SRC/apps/$id" "$APPS/$id"
+done
+test ! -e "$APPS/org.peios.events"
+test ! -e "$APPS/org.peios.networking"
+test ! -e "$APPS/org.peios.principals"
+find "$APPS" -type d -exec chmod 0755 {} +
+find "$APPS" -type f -exec chmod 0644 {} +
+test -z "$(grep -Ril 'placeholder.*no behaviour' "$APPS" || true)"
 
-# Seeds are offered, not applied: an image opts in with [registry] autoapply.
+# Seeds are offered, not applied: the image opts in through registry autoapply.
 mkdir -p "$PEKIT_OUT/usr/share/regim"
 install -m 0644 "$SRC/registry.d/atriumd-service.reg" "$PEKIT_OUT/usr/share/regim/atriumd-service.reg"
-"""
 
-[build.dependencies.peipkg]
-cargo = "*"
-rust = "*"
-gcc = "*"
-pkgconf-pkg-config = "*"
-libpeios-devel = "*"
-kernel-headers = "*"
+# Conventional build-ID indexed symbols and the exact Atrium sources named by
+# their DWARF. Sources from separately versioned Rust dependencies remain the
+# responsibility of those source/debugsource families.
+: > "$PEKIT_OUT/.debug-sources"
+split_debug() {
+  elf=$1
+  list="$PEKIT_OUT/.debug-$(basename "$elf")"
+  debugedit -b "$SRC" -d /usr/src/debug/dev.peios.atrium -l "$list" -n "$elf"
+  cat "$list" >> "$PEKIT_OUT/.debug-sources"
+  build_id=$(readelf -n "$elf" | sed -n 's/^[[:space:]]*Build ID: //p' | head -1)
+  [ -n "$build_id" ] || {
+    echo "atrium: $elf has no build ID" >&2
+    exit 1
+  }
+  first=$(printf %s "$build_id" | cut -c1-2)
+  rest=$(printf %s "$build_id" | cut -c3-)
+  debug="$PEKIT_OUT/usr/lib/debug/.build-id/$first/$rest.debug"
+  mkdir -p "$(dirname "$debug")"
+  objcopy --only-keep-debug "$elf" "$debug"
+  strip --strip-unneeded "$elf"
+  objcopy --add-gnu-debuglink="$debug" "$elf"
+  chmod 0644 "$debug"
+  rm -f "$list"
+}
+
+split_debug "$PEKIT_OUT/usr/sbin/atriumd"
+split_debug "$PEKIT_OUT/usr/libexec/atrium/atrium-server"
+split_debug "$PEKIT_OUT/usr/libexec/atrium/atrium-session"
+
+DEBUG_ROOT="$PEKIT_OUT/usr/src/debug/dev.peios.atrium"
+mkdir -p "$DEBUG_ROOT"
+tr '\0' '\n' < "$PEKIT_OUT/.debug-sources" | LC_ALL=C sort -u | while IFS= read -r rel; do
+  [ -n "$rel" ] || continue
+  case "$rel" in */) continue ;; esac
+  [ -f "$SRC/$rel" ] || continue
+  mkdir -p "$DEBUG_ROOT/$(dirname "$rel")"
+  cp "$SRC/$rel" "$DEBUG_ROOT/$rel"
+done
+rm -f "$PEKIT_OUT/.debug-sources"
+test -n "$(find "$DEBUG_ROOT" -type f -print -quit)"
+
+# Fail closed on the properties expected from the distribution Rust policy.
+for elf in \
+  "$PEKIT_OUT/usr/sbin/atriumd" \
+  "$PEKIT_OUT/usr/libexec/atrium/atrium-server" \
+  "$PEKIT_OUT/usr/libexec/atrium/atrium-session"
+do
+  readelf -h "$elf" | grep -Eq 'Type:[[:space:]]+DYN'
+  readelf -lW "$elf" | grep -q 'GNU_RELRO'
+  readelf -lW "$elf" | grep -Eq 'GNU_STACK[[:space:]].*RW[[:space:]]'
+  readelf -dW "$elf" | grep -q 'BIND_NOW'
+  readelf -dW "$elf" | grep -Eq 'FLAGS_1.*PIE'
+  readelf -dW "$elf" | grep -q 'RELR'
+  ! readelf -dW "$elf" | grep -Eq '(RPATH|RUNPATH)'
+  ! readelf -SW "$elf" | grep -q '\.debug_info'
+
+  build_id=$(readelf -n "$elf" | sed -n 's/^[[:space:]]*Build ID: //p' | head -1)
+  debug="$PEKIT_OUT/usr/lib/debug/.build-id/$(printf %s "$build_id" | cut -c1-2)/$(printf %s "$build_id" | cut -c3-).debug"
+  test -s "$debug"
+  readelf -SW "$debug" | grep -q '\.debug_info'
+  test "$(readelf -n "$debug" | sed -n 's/^[[:space:]]*Build ID: //p' | head -1)" = "$build_id"
+  ! grep -aF "$REPO_ROOT" "$elf" "$debug" >/dev/null
+done
+
+# Exercise the staged server/session boundary, authentication relay, cookie,
+# catalogue, application assets, traversal rejection, and logout. This is the
+# meaningful installed-payload gate available on a non-Peios build host.
+python3 "$SRC/tools/package-smoke.py" \
+  --server "$PEKIT_OUT/usr/libexec/atrium/atrium-server" \
+  --session "$PEKIT_OUT/usr/libexec/atrium/atrium-session" \
+  --apps "$APPS"
+'''
+
+[build.main.dependencies.peipkg]
+"org.git.kernel.dash"       = "*"
+peiosutils                   = "*"
+"org.gnu.findutils"         = "*"
+"org.gnu.grep"              = "*"
+"org.gnu.sed"               = "*"
+"org.rust-lang.rust"        = ">= 1.85"
+"org.pkgconf.pkgconf"       = "*"
+"org.gnu.binutils"          = "*"
+"org.sourceware.debugedit"  = "*"
+"org.python.python3"        = "*"
+clang                        = "*"
+libpeios-devel               = "*"
+kernel-headers               = "*"
+
+[build.main.dependencies.apt]
+dash         = "*"
+coreutils    = "*"
+findutils    = "*"
+grep         = "*"
+sed          = "*"
+cargo        = "*"
+rustc        = "*"
+gcc          = "*"
+pkg-config   = "*"
+libclang-dev = "*"
+binutils     = "*"
+debugedit    = "*"
+python3      = "*"
 
 [test]
-command = "cargo test --workspace"
+command = '''
+set -eu
+set -o pipefail 2>/dev/null || true
+unset PEIOS_LIB_DIR PEIOS_INCLUDE PKM_UAPI
+pkg-config --exists peios || {
+  echo "atrium: libpeios-devel (peios.pc) is required" >&2
+  exit 1
+}
+export BINDGEN_EXTRA_CLANG_ARGS="-isystem $(gcc -print-file-name=include) ${BINDGEN_EXTRA_CLANG_ARGS:-}"
+cargo test --workspace --locked --offline
+'''
+
+[test.dependencies.peipkg]
+"org.git.kernel.dash" = "*"
+peiosutils             = "*"
+"org.rust-lang.rust"  = ">= 1.85"
+"org.pkgconf.pkgconf" = "*"
+clang                  = "*"
+libpeios-devel         = "*"
+kernel-headers         = "*"
+
+[test.dependencies.apt]
+dash         = "*"
+coreutils    = "*"
+cargo        = "*"
+rustc        = "*"
+gcc          = "*"
+pkg-config   = "*"
+libclang-dev = "*"
 
 [clean]
 command = "cargo clean"

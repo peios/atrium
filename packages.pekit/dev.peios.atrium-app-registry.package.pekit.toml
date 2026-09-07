@@ -1,0 +1,12 @@
+[package]
+name         = "dev.peios.atrium-app-registry"
+architecture = "noarch"
+description  = "Atrium application for registry configuration and documentation"
+
+[dependencies]
+"dev.peios.atrium-core" = "{{version}}"
+peiosutils                = "*"
+
+[files]
+"@source:LICENSE"                            = "usr/share/licenses/dev.peios.atrium-app-registry/LICENSE"
+":usr/share/atrium/apps/org.peios.registry/**" = "usr/share/atrium/apps/org.peios.registry"
