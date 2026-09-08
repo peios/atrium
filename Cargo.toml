@@ -27,7 +27,11 @@ publish = false
 
 [workspace.dependencies]
 libc = "0.2"
-peios = { path = "../peios-rs/peios" }
-libauthd = { path = "../authd/libauthd" }
+# First-party Rust dependencies are pinned to immutable commits.  Release
+# builds vendor the complete Cargo.lock closure before entering the offline
+# Peios build root, so they never depend on sibling checkout layout or mutable
+# branch state.
+peios = { git = "https://github.com/peios/peios-rs.git", rev = "6b6a05ca94b651f83f9cdbbea0dbfc03d5208686", package = "peios" }
+libauthd = { git = "https://github.com/peios/authd.git", rev = "dbade050d817e9afe4348ce4a09578b5b50f6910", package = "libauthd" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

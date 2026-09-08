@@ -8,13 +8,37 @@ out_dir = "out"
 [source_package]
 name = "dev.peios.atrium-source"
 
+[build.vendor]
+command = '''
+set -eu
+SRC=$(pwd -P)
+export CARGO_HOME=/tmp/cargo
+export CARGO_NET_GIT_FETCH_WITH_CLI=true
+mkdir -p "$CARGO_HOME" "$PEKIT_OUT"
+cd "$SRC"
+cargo vendor --locked "$PEKIT_OUT/vendor" > "$PEKIT_OUT/cargo-config.toml"
+test -s "$PEKIT_OUT/cargo-config.toml"
+test -n "$(find "$PEKIT_OUT/vendor" -mindepth 1 -maxdepth 1 -type d -print -quit)"
+'''
+
+[build.vendor.dependencies.peipkg]
+"org.rust-lang.rust" = ">= 1.98.1"
+
+[build.vendor.dependencies.apt]
+cargo           = "*"
+git             = "*"
+ca-certificates = "*"
+
 [build.main]
+needs = ["vendor"]
 command = '''
 set -eu
 set -o pipefail 2>/dev/null || true
 
-SRC=$(pwd)
-REPO_ROOT=$(cd "$SRC/.." && pwd)
+SRC=$(pwd -P)
+export CARGO_HOME="$PEKIT_OUT/cargo-home"
+mkdir -p "$CARGO_HOME"
+cp "$PEKIT_VENDOR_OUT/cargo-config.toml" "$CARGO_HOME/config.toml"
 
 for tool in cargo rustc gcc pkg-config python3 objcopy strip readelf debugedit; do
   command -v "$tool" >/dev/null || {
@@ -38,9 +62,9 @@ if versions != [expected]:
     raise SystemExit(f"atrium: workspace versions {versions!r} do not equal package version {expected!r}")
 '
 
-# A release build consumes the packaged C ABI. A sibling checkout is not a
-# declared build input and must never silently become one. The remaining Cargo
-# path dependencies are tracked below as the last source-hermeticity blocker.
+# A release build consumes the packaged C ABI. First-party Rust libraries and
+# crates.io inputs are pinned by Cargo.lock and supplied by build.vendor; no
+# sibling checkout or mutable Cargo cache is visible in this build root.
 unset PEIOS_LIB_DIR PEIOS_INCLUDE PKM_UAPI
 pkg-config --exists peios || {
   echo "atrium: libpeios-devel (peios.pc) is required" >&2
@@ -48,9 +72,10 @@ pkg-config --exists peios || {
 }
 
 export BINDGEN_EXTRA_CLANG_ARGS="-isystem $(gcc -print-file-name=include) ${BINDGEN_EXTRA_CLANG_ARGS:-}"
-# Keep absolute sibling-checkout paths out of the statically linked crates'
-# DWARF. Atrium's own paths are rewritten and collected by debugedit below.
-export RUSTFLAGS="${RUSTFLAGS:+$RUSTFLAGS }--remap-path-prefix=$REPO_ROOT/peios-rs=/usr/src/debug/dev.peios.peios-rs --remap-path-prefix=$REPO_ROOT/authd=/usr/src/debug/dev.peios.authd"
+# Keep every build-machine path out of the statically linked Rust crates'
+# DWARF. Atrium's own paths are rewritten and collected by debugedit below;
+# dependency paths use a stable vendor prefix.
+export RUSTFLAGS="${RUSTFLAGS:+$RUSTFLAGS }--remap-path-prefix=$PEKIT_VENDOR_OUT/vendor=/usr/src/debug/dev.peios.atrium/vendor --remap-path-prefix=$SRC=/usr/src/debug/dev.peios.atrium --remap-path-prefix=$PEKIT_OUT_BASE=/usr/src/debug/dev.peios.atrium/.build --remap-path-prefix=$PEKIT_WORKSPACE_ROOT=/usr/src/debug/dev.peios.atrium/.workspace"
 
 # Run the complete unit suite against the exact locked dependency graph. The
 # jobs-client test is normally conditional; give it a disposable PSPU jobs
@@ -87,9 +112,12 @@ cargo build --release --locked --offline \
   --target-dir "$PEKIT_OUT/target"
 
 mkdir -p "$PEKIT_OUT/usr/sbin" "$PEKIT_OUT/usr/libexec/atrium"
-install -m 0755 "$PEKIT_OUT/target/release/atriumd" "$PEKIT_OUT/usr/sbin/atriumd"
-install -m 0755 "$PEKIT_OUT/target/release/atrium-server" "$PEKIT_OUT/usr/libexec/atrium/atrium-server"
-install -m 0755 "$PEKIT_OUT/target/release/atrium-session" "$PEKIT_OUT/usr/libexec/atrium/atrium-session"
+cp "$PEKIT_OUT/target/release/atriumd" "$PEKIT_OUT/usr/sbin/atriumd"
+cp "$PEKIT_OUT/target/release/atrium-server" "$PEKIT_OUT/usr/libexec/atrium/atrium-server"
+cp "$PEKIT_OUT/target/release/atrium-session" "$PEKIT_OUT/usr/libexec/atrium/atrium-session"
+test -x "$PEKIT_OUT/usr/sbin/atriumd"
+test -x "$PEKIT_OUT/usr/libexec/atrium/atrium-server"
+test -x "$PEKIT_OUT/usr/libexec/atrium/atrium-session"
 
 # Applications are ordinary catalogue packages. Ship only the five complete
 # applications; explicit placeholders are source material, not production UI.
@@ -107,13 +135,13 @@ done
 test ! -e "$APPS/org.peios.events"
 test ! -e "$APPS/org.peios.networking"
 test ! -e "$APPS/org.peios.principals"
-find "$APPS" -type d -exec chmod 0755 {} +
-find "$APPS" -type f -exec chmod 0644 {} +
+test -n "$(find "$APPS" -type f -print -quit)"
 test -z "$(grep -Ril 'placeholder.*no behaviour' "$APPS" || true)"
 
 # Seeds are offered, not applied: the image opts in through registry autoapply.
 mkdir -p "$PEKIT_OUT/usr/share/regim"
-install -m 0644 "$SRC/registry.d/atriumd-service.reg" "$PEKIT_OUT/usr/share/regim/atriumd-service.reg"
+cp "$SRC/registry.d/atriumd-service.reg" "$PEKIT_OUT/usr/share/regim/atriumd-service.reg"
+test -f "$PEKIT_OUT/usr/share/regim/atriumd-service.reg"
 
 # Conventional build-ID indexed symbols and the exact Atrium sources named by
 # their DWARF. Sources from separately versioned Rust dependencies remain the
@@ -136,7 +164,6 @@ split_debug() {
   objcopy --only-keep-debug "$elf" "$debug"
   strip --strip-unneeded "$elf"
   objcopy --add-gnu-debuglink="$debug" "$elf"
-  chmod 0644 "$debug"
   rm -f "$list"
 }
 
@@ -176,7 +203,9 @@ do
   test -s "$debug"
   readelf -SW "$debug" | grep -q '\.debug_info'
   test "$(readelf -n "$debug" | sed -n 's/^[[:space:]]*Build ID: //p' | head -1)" = "$build_id"
-  ! grep -aF "$REPO_ROOT" "$elf" "$debug" >/dev/null
+  for forbidden in "$SRC" "$PEKIT_VENDOR_OUT" "$PEKIT_OUT_BASE" "$PEKIT_WORKSPACE_ROOT"; do
+    ! grep -aF "$forbidden" "$elf" "$debug" >/dev/null
+  done
 done
 
 # Exercise the staged server/session boundary, authentication relay, cookie,
@@ -194,12 +223,12 @@ peiosutils                   = "*"
 "org.gnu.findutils"         = "*"
 "org.gnu.grep"              = "*"
 "org.gnu.sed"               = "*"
-"org.rust-lang.rust"        = ">= 1.85"
+"org.rust-lang.rust"        = ">= 1.98.1"
 "org.pkgconf.pkgconf"       = "*"
 "org.gnu.binutils"          = "*"
 "org.sourceware.debugedit"  = "*"
 "org.python.python3"        = "*"
-clang                        = "*"
+"org.llvm.clang"            = ">= 22"
 libpeios-devel               = "*"
 kernel-headers               = "*"
 
@@ -219,9 +248,13 @@ debugedit    = "*"
 python3      = "*"
 
 [test]
+needs = ["vendor"]
 command = '''
 set -eu
 set -o pipefail 2>/dev/null || true
+export CARGO_HOME="$PEKIT_OUT/cargo-home"
+mkdir -p "$CARGO_HOME"
+cp "$PEKIT_VENDOR_OUT/cargo-config.toml" "$CARGO_HOME/config.toml"
 unset PEIOS_LIB_DIR PEIOS_INCLUDE PKM_UAPI
 pkg-config --exists peios || {
   echo "atrium: libpeios-devel (peios.pc) is required" >&2
@@ -234,9 +267,9 @@ cargo test --workspace --locked --offline
 [test.dependencies.peipkg]
 "org.git.kernel.dash" = "*"
 peiosutils             = "*"
-"org.rust-lang.rust"  = ">= 1.85"
+"org.rust-lang.rust"  = ">= 1.98.1"
 "org.pkgconf.pkgconf" = "*"
-clang                  = "*"
+"org.llvm.clang"      = ">= 22"
 libpeios-devel         = "*"
 kernel-headers         = "*"
 
