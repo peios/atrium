@@ -75,7 +75,7 @@ export BINDGEN_EXTRA_CLANG_ARGS="-isystem $(gcc -print-file-name=include) ${BIND
 # Keep every build-machine path out of the statically linked Rust crates'
 # DWARF. Atrium's own paths are rewritten and collected by debugedit below;
 # dependency paths use a stable vendor prefix.
-export RUSTFLAGS="${RUSTFLAGS:+$RUSTFLAGS }--remap-path-prefix=$PEKIT_VENDOR_OUT/vendor=/usr/src/debug/dev.peios.atrium/vendor --remap-path-prefix=$SRC=/usr/src/debug/dev.peios.atrium --remap-path-prefix=$PEKIT_OUT_BASE=/usr/src/debug/dev.peios.atrium/.build --remap-path-prefix=$PEKIT_WORKSPACE_ROOT=/usr/src/debug/dev.peios.atrium/.workspace"
+export RUSTFLAGS="${RUSTFLAGS:+$RUSTFLAGS }--remap-path-prefix=$PEKIT_WORKSPACE_ROOT=/usr/src/debug/dev.peios.atrium/.workspace --remap-path-prefix=$PEKIT_OUT_BASE=/usr/src/debug/dev.peios.atrium/.build --remap-path-prefix=$SRC=/usr/src/debug/dev.peios.atrium --remap-path-prefix=$PEKIT_VENDOR_OUT/vendor=/usr/src/debug/dev.peios.atrium/vendor"
 
 # Run the complete unit suite against the exact locked dependency graph. The
 # jobs-client test is normally conditional; give it a disposable PSPU jobs
@@ -143,9 +143,9 @@ mkdir -p "$PEKIT_OUT/usr/share/regim"
 cp "$SRC/registry.d/atriumd-service.reg" "$PEKIT_OUT/usr/share/regim/atriumd-service.reg"
 test -f "$PEKIT_OUT/usr/share/regim/atriumd-service.reg"
 
-# Conventional build-ID indexed symbols and the exact Atrium sources named by
-# their DWARF. Sources from separately versioned Rust dependencies remain the
-# responsibility of those source/debugsource families.
+# Conventional build-ID indexed symbols and the exact sources named by their
+# DWARF. Statically linked vendored crates are part of these executables, so
+# their referenced sources live in Atrium's debugsource package too.
 : > "$PEKIT_OUT/.debug-sources"
 split_debug() {
   elf=$1
@@ -176,9 +176,13 @@ mkdir -p "$DEBUG_ROOT"
 tr '\0' '\n' < "$PEKIT_OUT/.debug-sources" | LC_ALL=C sort -u | while IFS= read -r rel; do
   [ -n "$rel" ] || continue
   case "$rel" in */) continue ;; esac
-  [ -f "$SRC/$rel" ] || continue
+  case "$rel" in
+    vendor/*) origin="$PEKIT_VENDOR_OUT/$rel" ;;
+    *)        origin="$SRC/$rel" ;;
+  esac
+  [ -f "$origin" ] || continue
   mkdir -p "$DEBUG_ROOT/$(dirname "$rel")"
-  cp "$SRC/$rel" "$DEBUG_ROOT/$rel"
+  cp "$origin" "$DEBUG_ROOT/$rel"
 done
 rm -f "$PEKIT_OUT/.debug-sources"
 test -n "$(find "$DEBUG_ROOT" -type f -print -quit)"
