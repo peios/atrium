@@ -8,13 +8,6 @@ name         = "dev.peios.atrium"
 architecture = "noarch"
 description  = "Peios web user interface and default application set"
 
-[provides]
-atriumd = "{{version}}-2"
-
-[replaces]
-# The former monolithic package contained the core and all bundled apps.
-atriumd = "<= {{version}}-1"
-
 [dependencies]
 "dev.peios.atrium-core"         = "{{version}}"
 "dev.peios.atrium-app-about"    = "{{version}}"

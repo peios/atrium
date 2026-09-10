@@ -5,7 +5,7 @@ description  = "Atrium application for registry configuration and documentation"
 
 [dependencies]
 "dev.peios.atrium-core" = "{{version}}"
-peiosutils                = "*"
+"dev.peios.peiosutils"                = "*"
 
 [files]
 "@source:LICENSE"                            = "usr/share/licenses/dev.peios.atrium-app-registry/LICENSE"

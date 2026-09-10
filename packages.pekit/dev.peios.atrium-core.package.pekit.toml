@@ -11,9 +11,9 @@ description = "Peios web session host runtime"
 # atriumd is a PGSS Logon client and submits each interactive session as a
 # peinit job. Its service definition also orders itself after lpsd so prompts
 # have a local principal source that can answer them.
-authd  = "*"
-lpsd   = "*"
-peinit = "*"
+"dev.peios.authd"  = "*"
+"dev.peios.authd-lpsd"   = "*"
+"dev.peios.peinit" = "*"
 
 [files]
 "@source:LICENSE"                              = "usr/share/licenses/dev.peios.atrium-core/LICENSE"
