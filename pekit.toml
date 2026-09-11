@@ -77,36 +77,7 @@ export BINDGEN_EXTRA_CLANG_ARGS="-isystem $(gcc -print-file-name=include) ${BIND
 # dependency paths use a stable vendor prefix.
 export RUSTFLAGS="${RUSTFLAGS:+$RUSTFLAGS }--remap-path-prefix=$PEKIT_WORKSPACE_ROOT=/usr/src/debug/dev.peios.atrium/.workspace --remap-path-prefix=$PEKIT_OUT_BASE=/usr/src/debug/dev.peios.atrium/.build --remap-path-prefix=$SRC=/usr/src/debug/dev.peios.atrium --remap-path-prefix=$PEKIT_VENDOR_OUT/vendor=/usr/src/debug/dev.peios.atrium/vendor"
 
-# Run the complete unit suite against the exact locked dependency graph. The
-# jobs-client test is normally conditional; give it a disposable PSPU jobs
-# endpoint so it exercises descriptor passing, pidfd completion, and stop.
-FAKE_JOBS="$PEKIT_OUT/fake-peinit.sock"
-python3 "$SRC/tools/dev/fake_peinit.py" "$FAKE_JOBS" >"$PEKIT_OUT/fake-peinit.log" 2>&1 &
-FAKE_PID=$!
-cleanup_fake() {
-  kill "$FAKE_PID" 2>/dev/null || true
-  wait "$FAKE_PID" 2>/dev/null || true
-}
-trap cleanup_fake EXIT HUP INT TERM
-i=0
-while [ ! -S "$FAKE_JOBS" ]; do
-  kill -0 "$FAKE_PID" 2>/dev/null || {
-    cat "$PEKIT_OUT/fake-peinit.log" >&2
-    exit 1
-  }
-  i=$((i + 1))
-  [ "$i" -lt 200 ] || {
-    echo "atrium: timed out waiting for fake peinit" >&2
-    exit 1
-  }
-  sleep 0.05
-done
-ATRIUM_JOBS_SOCKET="$FAKE_JOBS" \
-  cargo test --release --workspace --locked --offline --target-dir "$PEKIT_OUT/target"
-cleanup_fake
-trap - EXIT HUP INT TERM
-rm -f "$FAKE_JOBS" "$PEKIT_OUT/fake-peinit.log"
-
+# The complete unit suite runs from the gated test target below.
 cargo build --release --locked --offline \
   --bin atriumd --bin atrium-server --bin atrium-session \
   --target-dir "$PEKIT_OUT/target"
@@ -187,6 +158,88 @@ done
 rm -f "$PEKIT_OUT/.debug-sources"
 test -n "$(find "$DEBUG_ROOT" -type f -print -quit)"
 
+'''
+
+[build.main.dependencies.peipkg]
+"org.git.kernel.dash"      = "*"
+"dev.peios.peiosutils"     = "*"
+"org.gnu.findutils"        = "*"
+"org.gnu.grep"             = "*"
+"org.gnu.sed"              = "*"
+"org.rust-lang.rust"       = ">= 1.98.1"
+"org.pkgconf.pkgconf"      = "*"
+"org.gnu.binutils"         = "*"
+"org.sourceware.debugedit" = "*"
+"org.python.python3"       = "*"
+"org.llvm.clang"           = ">= 22"
+"dev.peios.libpeios-devel" = "*"
+"dev.peios.kernel-headers" = "*"
+
+[build.main.dependencies.apt]
+dash         = "*"
+coreutils    = "*"
+findutils    = "*"
+grep         = "*"
+sed          = "*"
+cargo        = "*"
+rustc        = "*"
+gcc          = "*"
+pkg-config   = "*"
+libclang-dev = "*"
+binutils     = "*"
+debugedit    = "*"
+python3      = "*"
+
+[test]
+gate = true
+needs = ["main"]
+command = '''
+set -eu
+set -o pipefail 2>/dev/null || true
+SRC=$(pwd -P)
+export CARGO_HOME="$PEKIT_OUT/cargo-home"
+mkdir -p "$CARGO_HOME"
+cp "$PEKIT_VENDOR_OUT/cargo-config.toml" "$CARGO_HOME/config.toml"
+unset PEIOS_LIB_DIR PEIOS_INCLUDE PKM_UAPI
+pkg-config --exists peios || {
+  echo "atrium: libpeios-devel (peios.pc) is required" >&2
+  exit 1
+}
+export BINDGEN_EXTRA_CLANG_ARGS="-isystem $(gcc -print-file-name=include) ${BINDGEN_EXTRA_CLANG_ARGS:-}"
+# Run the complete unit suite against the exact locked dependency graph. The
+# jobs-client test is normally conditional; give it a disposable PSPU jobs
+# endpoint so it exercises descriptor passing, pidfd completion, and stop.
+FAKE_JOBS="$PEKIT_OUT/fake-peinit.sock"
+python3 "$SRC/tools/dev/fake_peinit.py" "$FAKE_JOBS" >"$PEKIT_OUT/fake-peinit.log" 2>&1 &
+FAKE_PID=$!
+cleanup_fake() {
+  kill "$FAKE_PID" 2>/dev/null || true
+  wait "$FAKE_PID" 2>/dev/null || true
+}
+trap cleanup_fake EXIT HUP INT TERM
+i=0
+while [ ! -S "$FAKE_JOBS" ]; do
+  kill -0 "$FAKE_PID" 2>/dev/null || {
+    cat "$PEKIT_OUT/fake-peinit.log" >&2
+    exit 1
+  }
+  i=$((i + 1))
+  [ "$i" -lt 200 ] || {
+    echo "atrium: timed out waiting for fake peinit" >&2
+    exit 1
+  }
+  sleep 0.05
+done
+ATRIUM_JOBS_SOCKET="$FAKE_JOBS" \
+  cargo test --release --workspace --locked --offline --target-dir "$PEKIT_OUT/target"
+cleanup_fake
+trap - EXIT HUP INT TERM
+rm -f "$FAKE_JOBS" "$PEKIT_OUT/fake-peinit.log"
+
+# Validate the exact staged package output produced by build.main.
+SRC=$(pwd -P)
+PEKIT_OUT="$PEKIT_MAIN_OUT"
+APPS="$PEKIT_OUT/usr/share/atrium/apps"
 # Fail closed on the properties expected from the distribution Rust policy.
 for elf in \
   "$PEKIT_OUT/usr/sbin/atriumd" \
@@ -221,22 +274,22 @@ python3 "$SRC/tools/package-smoke.py" \
   --apps "$APPS"
 '''
 
-[build.main.dependencies.peipkg]
-"org.git.kernel.dash"       = "*"
-"dev.peios.peiosutils"                   = "*"
-"org.gnu.findutils"         = "*"
-"org.gnu.grep"              = "*"
-"org.gnu.sed"               = "*"
-"org.rust-lang.rust"        = ">= 1.98.1"
-"org.pkgconf.pkgconf"       = "*"
-"org.gnu.binutils"          = "*"
-"org.sourceware.debugedit"  = "*"
-"org.python.python3"        = "*"
-"org.llvm.clang"            = ">= 22"
-"dev.peios.libpeios-devel"               = "*"
-"dev.peios.kernel-headers"               = "*"
+[test.dependencies.peipkg]
+"org.git.kernel.dash"      = "*"
+"dev.peios.peiosutils"     = "*"
+"org.gnu.findutils"        = "*"
+"org.gnu.grep"             = "*"
+"org.gnu.sed"              = "*"
+"org.rust-lang.rust"       = ">= 1.98.1"
+"org.pkgconf.pkgconf"      = "*"
+"org.gnu.binutils"         = "*"
+"org.sourceware.debugedit" = "*"
+"org.python.python3"       = "*"
+"org.llvm.clang"           = ">= 22"
+"dev.peios.libpeios-devel" = "*"
+"dev.peios.kernel-headers" = "*"
 
-[build.main.dependencies.apt]
+[test.dependencies.apt]
 dash         = "*"
 coreutils    = "*"
 findutils    = "*"
@@ -250,41 +303,3 @@ libclang-dev = "*"
 binutils     = "*"
 debugedit    = "*"
 python3      = "*"
-
-[test]
-needs = ["vendor"]
-command = '''
-set -eu
-set -o pipefail 2>/dev/null || true
-export CARGO_HOME="$PEKIT_OUT/cargo-home"
-mkdir -p "$CARGO_HOME"
-cp "$PEKIT_VENDOR_OUT/cargo-config.toml" "$CARGO_HOME/config.toml"
-unset PEIOS_LIB_DIR PEIOS_INCLUDE PKM_UAPI
-pkg-config --exists peios || {
-  echo "atrium: libpeios-devel (peios.pc) is required" >&2
-  exit 1
-}
-export BINDGEN_EXTRA_CLANG_ARGS="-isystem $(gcc -print-file-name=include) ${BINDGEN_EXTRA_CLANG_ARGS:-}"
-cargo test --workspace --locked --offline
-'''
-
-[test.dependencies.peipkg]
-"org.git.kernel.dash" = "*"
-"dev.peios.peiosutils"             = "*"
-"org.rust-lang.rust"  = ">= 1.98.1"
-"org.pkgconf.pkgconf" = "*"
-"org.llvm.clang"      = ">= 22"
-"dev.peios.libpeios-devel"         = "*"
-"dev.peios.kernel-headers"         = "*"
-
-[test.dependencies.apt]
-dash         = "*"
-coreutils    = "*"
-cargo        = "*"
-rustc        = "*"
-gcc          = "*"
-pkg-config   = "*"
-libclang-dev = "*"
-
-[clean]
-command = "cargo clean"

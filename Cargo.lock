@@ -13,14 +13,14 @@ dependencies = [
 
 [[package]]
 name = "atrium-http"
-version = "0.0.25"
+version = "0.0.26"
 dependencies = [
  "serde_json",
 ]
 
 [[package]]
 name = "atrium-proto"
-version = "0.0.25"
+version = "0.0.26"
 dependencies = [
  "libc",
  "serde",
@@ -29,7 +29,7 @@ dependencies = [
 
 [[package]]
 name = "atrium-server"
-version = "0.0.25"
+version = "0.0.26"
 dependencies = [
  "atrium-http",
  "atrium-proto",
@@ -39,7 +39,7 @@ dependencies = [
 
 [[package]]
 name = "atrium-session"
-version = "0.0.25"
+version = "0.0.26"
 dependencies = [
  "atrium-http",
  "atrium-proto",
@@ -53,7 +53,7 @@ dependencies = [
 
 [[package]]
 name = "atriumd"
-version = "0.0.25"
+version = "0.0.26"
 dependencies = [
  "atrium-proto",
  "libauthd",
@@ -266,7 +266,7 @@ dependencies = [
 [[package]]
 name = "peios"
 version = "0.4.0"
-source = "git+https://github.com/peios/peios-rs.git?rev=6b6a05ca94b651f83f9cdbbea0dbfc03d5208686#6b6a05ca94b651f83f9cdbbea0dbfc03d5208686"
+source = "git+https://github.com/peios/peios-rs.git?rev=f4309f78fbaa878a14429a5e07d778dba9ddfab7#f4309f78fbaa878a14429a5e07d778dba9ddfab7"
 dependencies = [
  "bitflags",
  "libc",
@@ -276,7 +276,7 @@ dependencies = [
 [[package]]
 name = "peios-sys"
 version = "0.3.0"
-source = "git+https://github.com/peios/peios-rs.git?rev=6b6a05ca94b651f83f9cdbbea0dbfc03d5208686#6b6a05ca94b651f83f9cdbbea0dbfc03d5208686"
+source = "git+https://github.com/peios/peios-rs.git?rev=f4309f78fbaa878a14429a5e07d778dba9ddfab7#f4309f78fbaa878a14429a5e07d778dba9ddfab7"
 dependencies = [
  "bindgen",
  "pkg-config",

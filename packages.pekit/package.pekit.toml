@@ -6,7 +6,8 @@
 format = "peipkg"
 
 [package]
-version      = "{{version}}-2"
+version      = "{{version}}-1"
 architecture = "x86_64"
 license      = "MIT"
 license_class = "free"
+homepage     = "https://github.com/peios/atrium"
