@@ -192,7 +192,7 @@ python3      = "*"
 
 [test]
 gate = true
-needs = ["main"]
+needs = ["main", "vendor"]
 command = '''
 set -eu
 set -o pipefail 2>/dev/null || true
