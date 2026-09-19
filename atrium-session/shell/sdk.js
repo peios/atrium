@@ -94,8 +94,13 @@ window.addEventListener('keydown', (e) => {
     post({ t: 'chord', chord });
     return;
   }
+  // A bare key typed into a field is text, not a shortcut: an app that
+  // registers 'R' must still let its search box spell "registry".
+  const t = e.target;
+  const typing = !(e.ctrlKey || e.altKey || e.metaKey) && t instanceof Element
+    && (t.isContentEditable || t.matches('input, textarea, select'));
   const fns = localShortcuts.get(chord);
-  if (fns && fns.length) {
+  if (fns && fns.length && !typing) {
     e.preventDefault();
     for (const fn of fns) {
       try { fn(); } catch (err) { console.error('atrium shortcut handler:', err); }
