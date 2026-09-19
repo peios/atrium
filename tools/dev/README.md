@@ -23,6 +23,16 @@ with curl and a browser.
   exec `svctl` get the fake in `fakebin/svctl`: canned services, state in
   `$FAKE_SVCTL_STATE`, failure modes via a `mode` key in that file.
   `scen_services.py` drives the Services app against it.
+- `fakebin/peipkg` is not a fake: it execs a real peipkg
+  (`$FAKE_PEIPKG_BIN`) on a scratch root (`$FAKE_PEIPKG_ROOT`), so
+  `scen_packages.py` installs, refuses and undoes for real. The file says
+  how to give the root a repository. A package carrying security-descriptor
+  overrides cannot be installed on a plain host (no `security.peios.sd`);
+  the scenario uses one that can.
+- Building `atrium-session` off Peios needs libpeios found by hand: a
+  `peios.pc` filled in from `libpeios/peios.pc.in` (prefix the libpeios
+  tree, libdir its `target/release`) on `PKG_CONFIG_PATH`, and
+  `BINDGEN_EXTRA_CLANG_ARGS="-I$(gcc -print-file-name=include) -I…/pkm/uapi"`.
 - `ffdrive.py COOKIE URL` — the same through geckodriver on :4444.
 - `CDP_SCENARIO=scen_windows.py cdp.py …` runs a scenario file instead of
   the default click-About check (`ev`, `time`, `logs` are in scope).

@@ -6,52 +6,877 @@
 <title>Packages</title>
 <link rel="stylesheet" href="/shell/tokens.css">
 <style>
-  body { display: grid; place-items: start center; min-height: 100vh; }
-  main { width: min(52rem, calc(100vw - 3rem)); margin-top: clamp(20px, 6vh, 60px); }
+  body { min-height: 100vh; }
+  main { max-width: 72rem; margin: 0 auto; padding: clamp(20px, 4vh, 40px) 24px 48px; }
+  [hidden] { display: none !important; }
+
+  /* Page head */
+  .page-head { display: flex; align-items: end; justify-content: space-between; gap: 20px; margin-bottom: 20px; flex-wrap: wrap; }
   .eyebrow { font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.1em;
              text-transform: uppercase; color: var(--c-text-3); }
-  h1 { font-size: 26px; font-weight: 600; letter-spacing: -0.02em; margin: 6px 0 4px; }
-  .sub { color: var(--c-text-2); font-size: 13.5px; margin-bottom: 18px; }
-  .row { display: flex; gap: 8px; margin-bottom: 14px; flex-wrap: wrap; }
-  button {
+  h1 { font-size: 28px; font-weight: 600; letter-spacing: -0.02em; margin: 6px 0 0; }
+  .actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+
+  /* Buttons */
+  .btn {
+    display: inline-flex; align-items: center; gap: 8px;
     font: inherit; font-size: 13px; font-weight: 500; cursor: pointer;
     padding: 8px 14px; border-radius: 999px;
     border: 1px solid var(--c-border-2); background: var(--c-surface); color: var(--c-text);
+    transition: background 0.15s, border-color 0.15s;
   }
-  button:hover { background: var(--c-surface-2); }
-  button:disabled { opacity: 0.5; cursor: default; }
-  pre {
-    background: var(--c-surface); border: 1px solid var(--c-border);
-    border-radius: var(--radius-lg); box-shadow: var(--shadow-1);
-    padding: 16px 18px; margin: 0 0 40px; min-height: 200px;
-    font-family: var(--font-mono); font-size: 12px; line-height: 1.55;
-    white-space: pre-wrap; overflow-wrap: anywhere; position: relative;
+  .btn:hover { background: var(--c-surface-2); border-color: var(--c-text-3); }
+  .btn:disabled { opacity: 0.5; cursor: default; }
+  .btn.primary { background: var(--c-accent); border-color: var(--c-accent); color: white; }
+  .btn.primary:hover { filter: brightness(1.05); background: var(--c-accent); }
+  .btn.primary:disabled { filter: none; }
+  .btn.sm { padding: 4px 12px; font-size: 12px; }
+  .btn.danger:hover { border-color: color-mix(in oklab, var(--c-err) 45%, transparent); color: var(--c-err); }
+  .btn.danger.primary { background: var(--c-err); border-color: var(--c-err); color: white; }
+
+  /* Banner */
+  .banner {
+    border: 1px solid color-mix(in oklab, var(--c-err) 40%, transparent);
+    background: color-mix(in oklab, var(--c-err) 7%, var(--c-surface));
+    color: var(--c-text); border-radius: var(--radius); padding: 12px 14px;
+    font-size: 13px; margin-bottom: 14px; white-space: pre-wrap; overflow-wrap: anywhere;
   }
-  pre:empty::before { content: "Run something."; color: var(--c-text-3); font-family: var(--font-sans); }
-  pre[data-exit]::after {
-    content: "exit " attr(data-exit);
-    position: absolute; top: 10px; right: 12px;
-    font-family: var(--font-mono); font-size: 10.5px; color: var(--c-text-3);
-    border: 1px solid var(--c-border); border-radius: 999px; padding: 2px 8px;
+
+  /* Toolbar */
+  .toolbar { display: flex; align-items: center; gap: 8px; margin-bottom: 14px; flex-wrap: wrap; }
+  .tb-search {
+    flex: 1 1 200px; display: flex; align-items: center; gap: 10px;
+    padding: 9px 14px; background: var(--c-surface);
+    border: 1px solid var(--c-border); border-radius: 999px; color: var(--c-text-2);
   }
-  pre[data-exit="0"]::after { color: var(--c-ok); border-color: color-mix(in oklab, var(--c-ok) 40%, transparent); }
+  .tb-search svg { flex: none; }
+  .tb-search input { flex: 1; min-width: 0; border: none; background: none; outline: none;
+                     font: inherit; font-size: 13px; color: var(--c-text); }
+  .pill {
+    font: inherit; font-size: 12.5px; cursor: pointer;
+    padding: 6px 14px; border: 1px solid var(--c-border); border-radius: 999px;
+    color: var(--c-text-2); background: var(--c-surface);
+  }
+  .pill:hover { background: var(--c-surface-2); }
+  .pill.active { background: var(--c-text); color: var(--c-bg); border-color: var(--c-text); }
+  .pill .n { font-family: var(--font-mono); font-size: 11px; opacity: 0.7; margin-left: 4px; }
+  .tabs { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 14px; }
+
+  /* Card + table */
+  .card { background: var(--c-surface); border: 1px solid var(--c-border);
+          border-radius: var(--radius-lg); box-shadow: var(--shadow-1); overflow: hidden; }
+  .tablewrap { overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; font-size: var(--dens-fs); }
+  th { text-align: left; font-weight: 500; font-size: 11px; white-space: nowrap;
+       letter-spacing: 0.08em; text-transform: uppercase; color: var(--c-text-3);
+       padding: 11px 14px; border-bottom: 1px solid var(--c-border); }
+  th[data-sort] { cursor: pointer; user-select: none; }
+  th[data-sort]:hover { color: var(--c-text); }
+  th[data-dir="asc"]::after { content: " ↑"; }
+  th[data-dir="desc"]::after { content: " ↓"; }
+  th:first-child, td:first-child { padding-left: 20px; }
+  th:last-child, td:last-child { padding-right: 20px; }
+  th.end, td.end { text-align: right; }
+  td { padding: 10px 14px; border-bottom: 1px solid var(--c-border); vertical-align: middle; }
+  tr:last-child td { border-bottom: none; }
+  tbody tr.pick { cursor: pointer; }
+  tbody tr.pick:hover td { background: var(--c-surface-2); }
+  tbody tr.sel td { background: var(--c-accent-2); }
+  .name { font-weight: 550; font-size: 13px; font-family: var(--font-mono); overflow-wrap: anywhere; }
+  .sub-ln { font-size: 12px; color: var(--c-text-3); margin-top: 2px; }
+  .mono { font-family: var(--font-mono); font-size: 12px; color: var(--c-text-2); }
+  .empty { padding: 28px 16px; text-align: center; color: var(--c-text-3); font-size: 13px; }
+  .foot { padding: 10px 20px; font-size: 12px; color: var(--c-text-3); border-top: 1px solid var(--c-border); }
+
+  /* Badges */
+  .badge {
+    display: inline-flex; align-items: center; gap: 6px;
+    font-size: 11.5px; font-weight: 500; font-family: var(--font-mono);
+    padding: 2px 10px; border-radius: 999px; width: max-content;
+  }
+  .badge.ok    { background: color-mix(in oklab, var(--c-ok) 14%, transparent); color: var(--c-ok); }
+  .badge.info  { background: color-mix(in oklab, var(--c-info) 14%, transparent); color: var(--c-info); }
+  .badge.warn  { background: color-mix(in oklab, var(--c-warn) 16%, transparent); color: var(--c-warn); }
+  .badge.err   { background: color-mix(in oklab, var(--c-err) 14%, transparent); color: var(--c-err); }
+  .badge.muted { background: var(--c-surface-2); color: var(--c-text-3); }
+
+  /* Installed: list beside a sticky detail */
+  .split { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; align-items: start; }
+  .split.open { grid-template-columns: minmax(0, 1fr) minmax(19rem, 24rem); }
+  @media (max-width: 860px) { .split.open { grid-template-columns: minmax(0, 1fr); } }
+  #detail { padding: 18px 20px; position: sticky; top: 16px; max-height: calc(100vh - 32px); overflow-y: auto; }
+  .dhead { display: flex; align-items: start; gap: 10px; justify-content: space-between; }
+  .dhead h2 { font-size: 15px; font-weight: 600; margin: 0; font-family: var(--font-mono); overflow-wrap: anywhere; }
+  .x { border: none; background: none; color: var(--c-text-3); cursor: pointer; font-size: 18px; line-height: 1; padding: 0 2px; }
+  .x:hover { color: var(--c-text); }
+  .ddesc { color: var(--c-text-2); font-size: 13px; margin: 6px 0 12px; }
+  .warnbox { border: 1px solid color-mix(in oklab, var(--c-warn) 45%, transparent);
+             background: color-mix(in oklab, var(--c-warn) 8%, var(--c-surface));
+             border-radius: var(--radius); padding: 10px 12px; font-size: 12.5px; margin: 0 0 12px; white-space: pre-wrap; }
+  dl { display: grid; grid-template-columns: max-content 1fr; gap: 5px 18px;
+       margin: 10px 0 16px; font-size: 12.5px; }
+  dt { font-family: var(--font-mono); font-size: 11px; color: var(--c-text-3);
+       text-transform: uppercase; letter-spacing: 0.06em; align-self: baseline; padding-top: 1px; }
+  dd { margin: 0; color: var(--c-text); overflow-wrap: anywhere; }
+  details { margin-top: 16px; font-size: 12.5px; }
+  summary { cursor: pointer; color: var(--c-text-2); }
+  .files { margin: 8px 0 0; padding: 10px 12px; max-height: 16rem; overflow: auto;
+           background: var(--c-bg); border: 1px solid var(--c-border); border-radius: var(--radius);
+           font-family: var(--font-mono); font-size: 11.5px; line-height: 1.6; white-space: pre; }
+
+  /* Plan dialog */
+  dialog { border: 1px solid var(--c-border-2); border-radius: var(--radius-lg); box-shadow: var(--shadow-2);
+           background: var(--c-surface); color: var(--c-text); padding: 0;
+           width: min(40rem, calc(100vw - 2rem)); max-height: calc(100vh - 2rem); }
+  dialog::backdrop { background: rgb(0 0 0 / 0.35); }
+  .dlg { display: flex; flex-direction: column; max-height: calc(100vh - 2rem); }
+  .dlg-head { padding: 18px 22px 0; }
+  .dlg-head h2 { font-size: 17px; font-weight: 600; margin: 4px 0 0; }
+  .dlg-body { padding: 14px 22px; overflow-y: auto; font-size: 13px; }
+  .dlg-foot { padding: 14px 22px 18px; display: flex; gap: 8px; justify-content: flex-end; align-items: center;
+              border-top: 1px solid var(--c-border); }
+  .dlg-foot .status { margin-right: auto; font-size: 12.5px; color: var(--c-text-2); }
+  .ops { list-style: none; margin: 0 0 12px; padding: 0; border: 1px solid var(--c-border); border-radius: var(--radius); }
+  .ops li { display: flex; gap: 10px; align-items: baseline; padding: 8px 12px; border-bottom: 1px solid var(--c-border); }
+  .ops li:last-child { border-bottom: none; }
+  .ops .verb { flex: none; width: 5.5rem; }
+  .ops .what { font-family: var(--font-mono); font-size: 12.5px; overflow-wrap: anywhere; }
+  .ops .ver { color: var(--c-text-3); }
+  .notes { margin: 0 0 12px; padding-left: 18px; font-size: 12.5px; color: var(--c-text-2); }
+  .check { display: flex; gap: 8px; align-items: center; font-size: 12.5px; color: var(--c-text-2); margin: 0 0 12px; }
+  .log { margin: 0; padding: 12px 14px; max-height: 18rem; overflow: auto;
+         background: var(--c-bg); border: 1px solid var(--c-border); border-radius: var(--radius);
+         font-family: var(--font-mono); font-size: 11.5px; line-height: 1.55; white-space: pre-wrap; overflow-wrap: anywhere; }
+  .log .e { color: var(--c-err); }
+  .log .w { color: var(--c-warn); }
+  summary:focus-visible { outline: 2px solid var(--c-accent); outline-offset: 2px; border-radius: var(--radius-sm); }
+  .result { border-radius: var(--radius); padding: 10px 12px; font-size: 12.5px; margin: 12px 0 0; white-space: pre-wrap; }
+  .result.ok  { background: color-mix(in oklab, var(--c-ok) 10%, var(--c-surface)); border: 1px solid color-mix(in oklab, var(--c-ok) 40%, transparent); }
+  .result.bad { background: color-mix(in oklab, var(--c-err) 7%, var(--c-surface)); border: 1px solid color-mix(in oklab, var(--c-err) 40%, transparent); }
+  .result.warn { background: color-mix(in oklab, var(--c-warn) 8%, var(--c-surface)); border: 1px solid color-mix(in oklab, var(--c-warn) 45%, transparent); }
+  code { font-family: var(--font-mono); font-size: 0.92em; }
 </style>
 </head>
 <body>
 <main>
-  <div class="eyebrow">software</div>
-  <h1>Packages</h1>
-  <div class="sub">What this machine runs, straight from <code>peipkg</code>. Wrapper-app style: these buttons are <code>data-atrium-exec</code> attributes — no scripting beyond the SDK.</div>
-  <div class="row">
-    <button data-atrium-exec="peipkg list" data-atrium-target="#out">Installed packages</button>
-    <button data-atrium-exec="peipkg repo list" data-atrium-target="#out">Repositories</button>
-    <button data-atrium-exec="peipkg --help" data-atrium-target="#out">Help</button>
+  <div class="page-head">
+    <div>
+      <div class="eyebrow" id="host">packages</div>
+      <h1>Packages</h1>
+    </div>
+    <div class="actions">
+      <button class="btn" id="b-sync" title="peipkg refresh — fetch the repositories' current indexes">Refresh repositories</button>
+      <button class="btn" id="b-reload">Reload</button>
+    </div>
   </div>
-  <pre id="out"></pre>
+
+  <div id="banner" class="banner" hidden></div>
+
+  <div class="tabs" role="tablist">
+    <button class="pill active" data-tab="installed">Installed<span class="n" id="n-installed"></span></button>
+    <button class="pill" data-tab="available">Available</button>
+    <button class="pill" data-tab="updates">Updates<span class="n" id="n-updates"></span></button>
+    <button class="pill" data-tab="repos">Repositories<span class="n" id="n-repos"></span></button>
+    <button class="pill" data-tab="history">History</button>
+  </div>
+
+  <!-- Installed -->
+  <section id="v-installed">
+    <div class="toolbar">
+      <div class="tb-search">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
+        <input id="q-installed" placeholder="Filter installed packages…">
+      </div>
+      <button class="pill" id="p-orphaned" hidden>Orphaned<span class="n" id="n-orphaned"></span></button>
+    </div>
+    <div class="split" id="split">
+      <div class="card">
+        <div class="tablewrap">
+          <table>
+            <thead><tr>
+              <th data-sort="Name">Package</th><th data-sort="Version">Version</th>
+              <th data-sort="Architecture">Arch</th><th data-sort="Origin">Origin</th>
+            </tr></thead>
+            <tbody id="rows-installed"></tbody>
+          </table>
+        </div>
+        <div id="empty-installed" class="empty" hidden></div>
+      </div>
+      <aside id="detail" class="card" hidden>
+        <div class="dhead"><h2 id="d-name"></h2><button class="x" id="d-close" title="Close">×</button></div>
+        <div id="d-desc" class="ddesc" hidden></div>
+        <div id="d-orphan" class="warnbox" hidden></div>
+        <div id="d-alt" class="warnbox" hidden></div>
+        <dl id="d-facts"></dl>
+        <div class="actions">
+          <button id="b-upgrade" class="btn">Upgrade</button>
+          <button id="b-uninstall" class="btn danger">Uninstall</button>
+        </div>
+        <details id="d-files-box">
+          <summary id="d-files-sum">Files</summary>
+          <div id="d-files" class="files"></div>
+        </details>
+      </aside>
+    </div>
+  </section>
+
+  <!-- Available -->
+  <section id="v-available" hidden>
+    <div class="toolbar">
+      <div class="tb-search">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
+        <input id="q-available" placeholder="Search the configured repositories by name or description…">
+      </div>
+    </div>
+    <div class="card">
+      <div class="tablewrap">
+        <table>
+          <thead><tr><th>Package</th><th>Version</th><th>Repository</th><th>Status</th><th class="end"></th></tr></thead>
+          <tbody id="rows-available"></tbody>
+        </table>
+      </div>
+      <div id="empty-available" class="empty"></div>
+      <div id="foot-available" class="foot" hidden></div>
+    </div>
+  </section>
+
+  <!-- Updates -->
+  <section id="v-updates" hidden>
+    <div class="toolbar">
+      <div class="sub-ln" style="flex:1" id="updates-note"></div>
+      <button class="btn" id="b-check">Check again</button>
+      <button class="btn primary" id="b-upgrade-all" disabled>Upgrade all</button>
+    </div>
+    <div class="card">
+      <div class="tablewrap">
+        <table>
+          <thead><tr><th>Change</th><th>Package</th><th>Version</th></tr></thead>
+          <tbody id="rows-updates"></tbody>
+        </table>
+      </div>
+      <div id="empty-updates" class="empty"></div>
+    </div>
+  </section>
+
+  <!-- Repositories -->
+  <section id="v-repos" hidden>
+    <div class="card">
+      <div class="tablewrap">
+        <table>
+          <thead><tr><th>Repository</th><th>URL</th><th>Priority</th><th>Signature policy</th></tr></thead>
+          <tbody id="rows-repos"></tbody>
+        </table>
+      </div>
+      <div id="empty-repos" class="empty" hidden></div>
+    </div>
+  </section>
+
+  <!-- History -->
+  <section id="v-history" hidden>
+    <div class="toolbar">
+      <div class="sub-ln" style="flex:1">Every change peipkg has made to this machine, newest first. Undo reverses the most recent committed transaction, as a new transaction.</div>
+      <button class="btn" id="b-undo" disabled>Undo last…</button>
+    </div>
+    <div class="card">
+      <div class="tablewrap">
+        <table>
+          <thead><tr><th>#</th><th>When</th><th>State</th><th>Summary</th></tr></thead>
+          <tbody id="rows-history"></tbody>
+        </table>
+      </div>
+      <div id="empty-history" class="empty" hidden></div>
+    </div>
+  </section>
 </main>
+
+<dialog id="dlg">
+  <div class="dlg">
+    <div class="dlg-head">
+      <div class="eyebrow" id="dlg-eyebrow"></div>
+      <h2 id="dlg-title"></h2>
+    </div>
+    <div class="dlg-body">
+      <ul id="dlg-ops" class="ops" hidden></ul>
+      <ul id="dlg-notes" class="notes" hidden></ul>
+      <div id="dlg-elevated" class="warnbox" hidden></div>
+      <label id="dlg-cascade-box" class="check" hidden>
+        <input type="checkbox" id="dlg-cascade"> Also remove the packages that depend on it (<code>--cascade</code>)
+      </label>
+      <details id="dlg-raw-box"><summary>peipkg output</summary><pre id="dlg-log" class="log"></pre></details>
+      <div id="dlg-result" class="result" hidden></div>
+    </div>
+    <div class="dlg-foot">
+      <span id="dlg-status" class="status"></span>
+      <button class="btn" id="dlg-cancel">Cancel</button>
+      <button class="btn primary" id="dlg-apply" disabled>Apply</button>
+    </div>
+  </div>
+</dialog>
+
 <script type="module">
-  import { atrium } from '/shell/sdk.js';
-  await atrium.ready();
+import { atrium } from '/shell/sdk.js';
+
+const $ = (id) => document.getElementById(id);
+const el = (tag, cls, text) => {
+  const e = document.createElement(tag);
+  if (cls) e.className = cls;
+  if (text != null) e.textContent = text;
+  return e;
+};
+
+const AVAILABLE_CAP = 300;   // rows drawn; a broader search says so rather than drawing thousands
+
+let installed = [];          // peipkg list --json
+let installedBy = new Map(); // name -> entry
+let repos = [];
+let history = [];
+let updates = null;          // parsed upgrade --dry-run plan, or null before the first check
+let available = [];          // last search result
+let selected = null;         // installed package name
+let detail = null;           // info for selected
+let busy = false;            // a plan dialog owns peipkg
+let tab = 'installed';
+let sort = { key: 'Name', dir: 'asc' };
+let filter = { q: '', orphaned: false };
+let infoJSON = null;         // does this peipkg have `info --json`? null = not yet known
+let searchSeq = 0;
+
+// ---- peipkg over the exec capability --------------------------------------
+
+// Runs peipkg with argv, collecting both streams. `onOutput` sees output as
+// it arrives. exec's own limits (five minutes, one megabyte) surface as
+// `truncated` — for a transaction that is not a detail, so it is kept.
+async function peipkg(args, onOutput) {
+  let out = '', err = '';
+  const done = await atrium.exec(['peipkg', ...args], (text, stream) => {
+    if (stream === 'stderr') err += text; else out += text;
+    if (onOutput) onOutput(text, stream);
+  });
+  return { out, err, code: done.exit_code, signal: done.exit_signal, truncated: !!done.truncated };
+}
+
+// The error is peipkg's last word on stderr; warnings ahead of it (a skipped
+// repository, an audit event that could not be emitted) stay in the log.
+function failure(r) {
+  const lines = r.err.split('\n').map((l) => l.trim()).filter(Boolean);
+  const errors = lines.filter((l) => !/^peipkg: warning:/.test(l));
+  const msg = (errors.pop() || lines.pop() || r.out.trim()).replace(/^peipkg:\s*/, '');
+  return new Error(msg || `peipkg exited ${r.code ?? `on signal ${r.signal}`}`);
+}
+
+async function pjson(...args) {
+  const r = await peipkg(args);
+  if (r.code !== 0) throw failure(r);
+  // emitJSON prints `null` for an empty Go slice.
+  return JSON.parse(r.out) ?? [];
+}
+
+// `info --json` is newer than the app's minimum peipkg; an older one rejects
+// the flag, and the text form carries the same facts.
+async function info(name) {
+  if (infoJSON !== false) {
+    const r = await peipkg(['info', '--json', name]);
+    if (r.code === 0) { infoJSON = true; return JSON.parse(r.out); }
+    if (infoJSON === true || !/flag provided but not defined/.test(r.err + r.out)) throw failure(r);
+    infoJSON = false;
+  }
+  const r = await peipkg(['info', name]);
+  if (r.code !== 0) throw failure(r);
+  const f = {};
+  for (const line of r.out.split('\n')) {
+    const m = /^([a-z-]+):\s+(.*)$/.exec(line);
+    if (m) f[m[1]] = m[2];
+  }
+  const alt = r.out.split('Alternate upgrade path:\n')[1];
+  const orphaned = /\(ORPHANED/.test(f.origin || '');
+  return {
+    Name: f.name, Version: f.version, Architecture: f.architecture,
+    Origin: f.origin === '(local file)' ? '' : (f.origin || '').replace(/ \(ORPHANED.*$/, ''),
+    orphaned, installed_at: f.installed, description: f.description, license: f.license,
+    license_class: f['license-class'], homepage: f.homepage,
+    alternate_upgrade: alt ? alt.trim() : undefined,
+  };
+}
+
+// The plan peipkg prints (gate.go presentPlan): operation lines, elevated
+// actions, notices. The raw text stays on show beside whatever this reads
+// out of it, so a line this does not recognise is never hidden.
+function parsePlan(text) {
+  const plan = { ops: [], elevated: [], notes: [], nothing: /nothing to do/.test(text) };
+  for (const line of text.split('\n')) {
+    let m;
+    if ((m = /^ {2}(install|upgrade|downgrade|remove)\s+(\S+)\s+(.*?)\s*$/.exec(line))) {
+      plan.ops.push({ verb: m[1], name: m[2], version: m[3] });
+    } else if ((m = /^ {2}! elevated: (.*)$/.exec(line))) {
+      plan.elevated.push(m[1]);
+    } else if ((m = /^ *note: (.*)$/.exec(line))) {
+      plan.notes.push(m[1]);
+    }
+  }
+  return plan;
+}
+
+// ---- rendering -------------------------------------------------------------
+
+const VERB_BADGE = { install: 'ok', upgrade: 'info', downgrade: 'warn', remove: 'err' };
+
+function showBanner(text) { const b = $('banner'); b.textContent = text; b.hidden = false; }
+function clearBanner() { $('banner').hidden = true; }
+
+function fmtTime(iso) {
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime()) ? iso : d.toLocaleString();
+}
+
+function renderTabs() {
+  for (const p of document.querySelectorAll('[data-tab]')) p.classList.toggle('active', p.dataset.tab === tab);
+  for (const v of ['installed', 'available', 'updates', 'repos', 'history']) $(`v-${v}`).hidden = v !== tab;
+  $('n-installed').textContent = installed.length ? `· ${installed.length}` : '';
+  $('n-repos').textContent = repos.length ? `· ${repos.length}` : '';
+  $('n-updates').textContent = updates && updates.ops.length ? `· ${updates.ops.length}` : '';
+}
+
+function renderInstalled() {
+  const orphans = installed.filter((p) => p.orphaned).length;
+  $('p-orphaned').hidden = orphans === 0;
+  $('n-orphaned').textContent = orphans ? `· ${orphans}` : '';
+  $('p-orphaned').classList.toggle('active', filter.orphaned);
+  for (const th of document.querySelectorAll('th[data-sort]')) {
+    if (th.dataset.sort === sort.key) th.dataset.dir = sort.dir; else delete th.dataset.dir;
+  }
+
+  const q = filter.q.trim().toLowerCase();
+  const sign = sort.dir === 'asc' ? 1 : -1;
+  const shown = installed
+    .filter((p) => (!filter.orphaned || p.orphaned) &&
+      (!q || p.Name.toLowerCase().includes(q) || (p.Origin || '').toLowerCase().includes(q)))
+    .sort((a, b) => sign * (String(a[sort.key] || '').localeCompare(String(b[sort.key] || ''), undefined, { numeric: true })
+      || a.Name.localeCompare(b.Name)));
+
+  const rows = $('rows-installed');
+  rows.textContent = '';
+  for (const p of shown) {
+    const tr = el('tr', 'pick' + (p.Name === selected ? ' sel' : ''));
+    tr.dataset.pkg = p.Name;
+    const name = el('td');
+    name.appendChild(el('div', 'name', p.Name));
+    const origin = el('td');
+    if (p.orphaned) origin.appendChild(el('span', 'badge warn', `orphaned · ${p.Origin}`));
+    else { origin.className = 'mono'; origin.textContent = p.Origin || 'local file'; }
+    tr.append(name, el('td', 'mono', p.Version), el('td', 'mono', p.Architecture), origin);
+    tr.addEventListener('click', () => select(p.Name));
+    rows.appendChild(tr);
+  }
+  const empty = $('empty-installed');
+  empty.hidden = shown.length !== 0;
+  if (!shown.length) empty.textContent = installed.length ? 'Nothing matches the filter.' : 'No packages are installed.';
+}
+
+function fact(dl, label, value, mono = false) {
+  if (value == null || value === '') return;
+  const dd = el('dd');
+  if (mono) dd.appendChild(el('span', 'mono', value)); else dd.textContent = value;
+  dl.append(el('dt', null, label), dd);
+}
+
+function renderDetail() {
+  const open = !!(selected && detail);
+  $('detail').hidden = !open;
+  $('split').classList.toggle('open', open);
+  if (!open) return;
+
+  $('d-name').textContent = detail.Name;
+  $('d-desc').hidden = !detail.description;
+  $('d-desc').textContent = detail.description || '';
+  $('d-orphan').hidden = !detail.orphaned;
+  $('d-orphan').textContent = detail.orphaned
+    ? `Orphaned: the repository "${detail.Origin}" is no longer configured, so nothing refreshes this package and no trust state stands behind it.`
+    : '';
+  $('d-alt').hidden = !detail.alternate_upgrade;
+  $('d-alt').textContent = detail.alternate_upgrade ? `Alternate upgrade path:\n${detail.alternate_upgrade}` : '';
+
+  const dl = $('d-facts');
+  dl.textContent = '';
+  fact(dl, 'version', detail.Version, true);
+  fact(dl, 'arch', detail.Architecture, true);
+  fact(dl, 'origin', detail.Origin || 'local file', true);
+  fact(dl, 'installed', detail.installed_at ? fmtTime(detail.installed_at) : null);
+  fact(dl, 'license', [detail.license, detail.license_class && `(${detail.license_class})`].filter(Boolean).join(' '));
+  fact(dl, 'homepage', detail.homepage, true);
+
+  $('b-upgrade').disabled = busy;
+  $('b-uninstall').disabled = busy;
+}
+
+function renderAvailable(note) {
+  const rows = $('rows-available');
+  rows.textContent = '';
+  for (const p of available.slice(0, AVAILABLE_CAP)) {
+    const tr = el('tr');
+    tr.dataset.pkg = p.Name;
+    const name = el('td');
+    name.appendChild(el('div', 'name', p.Name));
+    if (p.Description) name.appendChild(el('div', 'sub-ln', p.Description));
+
+    const have = installedBy.get(p.Name);
+    const status = el('td');
+    const act = el('td', 'end');
+    if (!have) {
+      const b = el('button', 'btn sm', 'Install');
+      b.disabled = busy;
+      b.addEventListener('click', () => plan('install', [p.Name], `Install ${p.Name}`));
+      act.appendChild(b);
+    } else if (have.Version === p.Version) {
+      status.appendChild(el('span', 'badge ok', 'installed'));
+    } else {
+      // Which of two peipkg versions is newer is peipkg's judgement, not
+      // this page's: report the difference and let the plan say what it is.
+      status.appendChild(el('span', 'badge info', `installed ${have.Version}`));
+      const b = el('button', 'btn sm', 'Upgrade…');
+      b.disabled = busy;
+      b.addEventListener('click', () => plan('upgrade', [p.Name], `Upgrade ${p.Name}`));
+      act.appendChild(b);
+    }
+    tr.append(name, el('td', 'mono', p.Version), el('td', 'mono', p.Repository), status, act);
+    rows.appendChild(tr);
+  }
+  const empty = $('empty-available');
+  empty.hidden = available.length !== 0;
+  if (!available.length) empty.textContent = note || 'Type to search the repositories this machine is configured with.';
+  const foot = $('foot-available');
+  foot.hidden = available.length <= AVAILABLE_CAP;
+  foot.textContent = `Showing the first ${AVAILABLE_CAP} of ${available.length} matches — refine the search to see the rest.`;
+}
+
+function renderUpdates(note) {
+  const rows = $('rows-updates');
+  rows.textContent = '';
+  const ops = updates ? updates.ops : [];
+  for (const op of ops) {
+    const tr = el('tr');
+    const verb = el('td');
+    verb.appendChild(el('span', `badge ${VERB_BADGE[op.verb]}`, op.verb));
+    const name = el('td');
+    name.appendChild(el('div', 'name', op.name));
+    tr.append(verb, name, el('td', 'mono', op.version));
+    rows.appendChild(tr);
+  }
+  $('b-upgrade-all').disabled = busy || ops.length === 0;
+  $('updates-note').textContent = updates && updates.notes.length ? updates.notes.join(' · ') : '';
+  const empty = $('empty-updates');
+  empty.hidden = ops.length !== 0;
+  if (!ops.length) empty.textContent = note || (updates ? 'Everything installed is up to date with the repositories’ current indexes.' : 'Checking…');
+  renderTabs();
+}
+
+function renderRepos() {
+  const rows = $('rows-repos');
+  rows.textContent = '';
+  // A lower priority number wins resolution, so it leads the list.
+  for (const r of [...repos].sort((a, b) => a.Priority - b.Priority || a.Name.localeCompare(b.Name))) {
+    const tr = el('tr');
+    const name = el('td');
+    name.appendChild(el('div', 'name', r.Name));
+    const n = installed.filter((p) => p.Origin === r.Name).length;
+    name.appendChild(el('div', 'sub-ln', n === 1 ? '1 installed package' : `${n} installed packages`));
+    tr.append(name, el('td', 'mono', r.BaseURL), el('td', 'mono', String(r.Priority)), el('td', 'mono', r.Policy));
+    rows.appendChild(tr);
+  }
+  $('empty-repos').hidden = repos.length !== 0;
+  $('empty-repos').textContent = 'No repositories are configured.';
+}
+
+const TXN_BADGE = { committed: 'ok', pending: 'info', 'rolled-back': 'warn' };
+
+function renderHistory() {
+  const rows = $('rows-history');
+  rows.textContent = '';
+  for (const t of history) {
+    const tr = el('tr');
+    const state = el('td');
+    state.appendChild(el('span', `badge ${TXN_BADGE[t.state] || 'info'}`, t.state));
+    tr.append(el('td', 'mono', String(t.id)), el('td', null, fmtTime(t.started_at)), state,
+      el('td', null, t.summary || '(no summary)'));
+    rows.appendChild(tr);
+  }
+  $('empty-history').hidden = history.length !== 0;
+  $('empty-history').textContent = 'No transactions recorded.';
+  $('b-undo').disabled = busy || !history.some((t) => t.state === 'committed');
+}
+
+function renderAll() {
+  renderTabs(); renderInstalled(); renderDetail(); renderAvailable();
+  renderUpdates(); renderRepos(); renderHistory();
+}
+
+// ---- data flow -------------------------------------------------------------
+
+async function reload() {
+  try {
+    [installed, repos, history] = await Promise.all([
+      pjson('list', '--json'), pjson('repo', 'list', '--json'), pjson('history', '--json'),
+    ]);
+    installedBy = new Map(installed.map((p) => [p.Name, p]));
+    clearBanner();
+  } catch (err) {
+    showBanner(`peipkg could not be read: ${err.message}`);
+  }
+  if (selected && !installedBy.has(selected)) { selected = null; detail = null; }
+  renderAll();
+  if (selected) loadDetail();
+  checkUpdates();
+}
+
+async function checkUpdates() {
+  updates = null;
+  renderUpdates();
+  try {
+    const r = await peipkg(['upgrade', '--dry-run']);
+    if (r.code !== 0) throw failure(r);
+    updates = parsePlan(r.out);
+    renderUpdates();
+  } catch (err) {
+    updates = { ops: [], elevated: [], notes: [] };
+    renderUpdates(`Could not work out what would be upgraded: ${err.message}`);
+  }
+}
+
+async function select(name) {
+  selected = name;
+  detail = null;
+  renderInstalled();
+  await loadDetail();
+}
+
+async function loadDetail() {
+  const name = selected;
+  $('d-files-box').open = false;
+  $('d-files').textContent = '';
+  $('d-files-sum').textContent = 'Files';
+  try {
+    const d = await info(name);
+    if (selected !== name) return;
+    detail = d;
+  } catch (err) {
+    if (selected !== name) return;
+    detail = { ...(installedBy.get(name) || { Name: name }), description: `peipkg info failed: ${err.message}` };
+  }
+  renderDetail();
+}
+
+$('d-files-box').addEventListener('toggle', async () => {
+  if (!$('d-files-box').open || !selected || $('d-files').textContent) return;
+  const name = selected;
+  $('d-files').textContent = 'Loading…';
+  const r = await peipkg(['files', name]).catch((err) => ({ code: 1, err: err.message, out: '' }));
+  if (selected !== name) return;
+  if (r.code !== 0) { $('d-files').textContent = failure(r).message; return; }
+  const n = r.out.split('\n').filter(Boolean).length;
+  $('d-files-sum').textContent = `Files · ${n}${r.truncated ? ' (list cut short at exec’s output limit)' : ''}`;
+  $('d-files').textContent = r.out.trimEnd() || 'This package owns no files.';
+});
+
+function search(term) {
+  const seq = ++searchSeq;
+  if (!term.trim()) { available = []; renderAvailable(); return; }
+  setTimeout(async () => {
+    if (seq !== searchSeq) return;
+    try {
+      const found = await pjson('search', '--json', term.trim());
+      if (seq !== searchSeq) return;
+      available = found.sort((a, b) => a.Name.localeCompare(b.Name));
+      renderAvailable(`No package in the configured repositories matches “${term.trim()}”.`);
+    } catch (err) {
+      if (seq !== searchSeq) return;
+      available = [];
+      renderAvailable(`Search failed: ${err.message}`);
+    }
+  }, 250);
+}
+
+// ---- actions: dry run, confirm, apply --------------------------------------
+
+// Every change goes through the same three steps: ask peipkg what it would
+// do (--dry-run), show that plan, and only on Apply run it for real (--yes).
+// Nothing here decides what a transaction contains; peipkg does.
+let pending = null; // { verb, args, title }
+
+function setLog(text) { $('dlg-log').textContent = text; }
+function appendLog(text, stream) {
+  const log = $('dlg-log');
+  if (stream === 'stderr') log.appendChild(el('span', /^peipkg: warning:/.test(text) ? 'w' : 'e', text)); else log.append(text);
+  log.scrollTop = log.scrollHeight;
+}
+function result(kind, text) { const r = $('dlg-result'); r.className = `result ${kind}`; r.textContent = text; r.hidden = false; }
+
+async function plan(verb, args, title) {
+  if (busy) return;
+  busy = true;
+  pending = { verb, args, title };
+  renderAll();
+  $('dlg-cascade').checked = false;
+  $('dlg-cascade-box').hidden = verb !== 'uninstall';
+  $('dlg').showModal();
+  $('dlg-cancel').focus(); // not Apply: Enter on a plan nobody has read should do nothing
+  await dryRun();
+}
+
+function argv(extra) {
+  const cascade = pending.verb === 'uninstall' && $('dlg-cascade').checked ? ['--cascade'] : [];
+  return [pending.verb, ...extra, ...cascade, ...pending.args];
+}
+
+async function dryRun() {
+  $('dlg-eyebrow').textContent = 'plan';
+  $('dlg-title').textContent = pending.title;
+  for (const id of ['dlg-ops', 'dlg-notes', 'dlg-elevated']) { $(id).textContent = ''; $(id).hidden = true; }
+  $('dlg-result').hidden = true;
+  $('dlg-raw-box').open = false;
+  $('dlg-cancel').textContent = 'Cancel';
+  $('dlg-apply').hidden = false; $('dlg-apply').disabled = true;
+  $('dlg-apply').className = 'btn primary' + (pending.verb === 'uninstall' ? ' danger' : '');
+  $('dlg-status').textContent = 'Asking peipkg what this would change…';
+  setLog('');
+
+  let r;
+  try { r = await peipkg(argv(['--dry-run']), appendLog); }
+  catch (err) { r = { code: 1, out: '', err: err.message }; setLog(err.message); }
+  $('dlg-status').textContent = '';
+
+  if (r.code !== 0) {
+    $('dlg-raw-box').open = true;
+    result('bad', `peipkg cannot do this: ${failure(r).message}`);
+    return;
+  }
+  const p = parsePlan(r.out);
+  const ops = $('dlg-ops');
+  ops.textContent = '';
+  for (const op of p.ops) {
+    const li = el('li');
+    const v = el('span', 'verb');
+    v.appendChild(el('span', `badge ${VERB_BADGE[op.verb]}`, op.verb));
+    const what = el('span', 'what', op.name + ' ');
+    what.appendChild(el('span', 'ver', op.version));
+    li.append(v, what);
+    ops.appendChild(li);
+  }
+  ops.hidden = p.ops.length === 0;
+  const notes = $('dlg-notes');
+  notes.textContent = '';
+  for (const n of p.notes) notes.appendChild(el('li', null, n));
+  notes.hidden = p.notes.length === 0;
+
+  if (p.nothing || p.ops.length === 0) {
+    if (!p.nothing) $('dlg-raw-box').open = true;
+    result('ok', p.nothing ? 'Nothing to do — the request is already satisfied.' : 'peipkg printed no operations for this request; its output is below.');
+    return;
+  }
+  if (p.elevated.length) {
+    // §7.6.6: an elevated action wants a deliberate answer at a prompt, and
+    // --yes never supplies it. exec has no stdin, so it cannot be given here.
+    const box = $('dlg-elevated');
+    box.textContent = `This plan needs elevated authorisation, which peipkg only accepts typed at its own prompt:\n• ${p.elevated.join('\n• ')}\n\nRun it from a Terminal instead:  peipkg ${argv([]).join(' ')}`;
+    box.hidden = false;
+    return;
+  }
+  $('dlg-status').textContent = `${p.ops.length} change${p.ops.length === 1 ? '' : 's'}`;
+  $('dlg-apply').disabled = false;
+}
+
+async function apply() {
+  $('dlg-apply').disabled = true;
+  $('dlg-cancel').disabled = true;
+  $('dlg-cascade').disabled = true;
+  $('dlg-eyebrow').textContent = 'applying';
+  $('dlg-status').textContent = 'peipkg is working — do not close this window…';
+  $('dlg-raw-box').open = true;
+  setLog('');
+
+  let r;
+  try { r = await peipkg(argv(['--yes']), appendLog); }
+  catch (err) { r = { code: 1, out: '', err: err.message }; appendLog(err.message, 'stderr'); }
+
+  $('dlg-status').textContent = '';
+  $('dlg-eyebrow').textContent = 'finished';
+  $('dlg-apply').hidden = true;
+  $('dlg-cancel').disabled = false;
+  $('dlg-cancel').textContent = 'Close';
+  $('dlg-cascade').disabled = false;
+  $('dlg-cascade-box').hidden = true;
+
+  if (r.truncated) {
+    result('warn', 'Atrium stopped peipkg at the exec limit (five minutes, or one megabyte of output). '
+      + 'The transaction may be incomplete. Open a Terminal and run  peipkg recover  before anything else.');
+  } else if (r.code !== 0) {
+    result('bad', `peipkg failed: ${failure(r).message}`);
+  } else if (/^cancelled/m.test(r.out)) {
+    // Exit 0, but nothing was applied: peipkg wanted an answer at a prompt
+    // (an elevated action, or a modified file an uninstall would delete).
+    result('warn', `peipkg did not apply this — it needed an answer only its own prompt accepts. `
+      + `Run it from a Terminal:  peipkg ${argv([]).join(' ')}`);
+  } else {
+    // peipkg's own closing line: "done — 3 operations applied".
+    const done = /^done\b.*$/m.exec(r.out);
+    result('ok', done ? done[0][0].toUpperCase() + done[0].slice(1) + '.' : 'Done.');
+  }
+}
+
+function closeDialog() {
+  if ($('dlg-cancel').disabled) return; // a transaction is running
+  $('dlg').close();
+}
+
+$('dlg').addEventListener('cancel', (e) => { if ($('dlg-cancel').disabled) e.preventDefault(); });
+$('dlg').addEventListener('close', () => { busy = false; pending = null; reload(); });
+$('dlg-cancel').addEventListener('click', closeDialog);
+$('dlg-apply').addEventListener('click', apply);
+$('dlg-cascade').addEventListener('change', dryRun);
+
+$('b-upgrade').addEventListener('click', () => selected && plan('upgrade', [selected], `Upgrade ${selected}`));
+$('b-uninstall').addEventListener('click', () => selected && plan('uninstall', [selected], `Uninstall ${selected}`));
+$('b-upgrade-all').addEventListener('click', () => plan('upgrade', [], 'Upgrade everything'));
+$('b-undo').addEventListener('click', () => plan('undo', [], 'Undo the last transaction'));
+$('b-check').addEventListener('click', checkUpdates);
+$('b-reload').addEventListener('click', reload);
+
+$('b-sync').addEventListener('click', async () => {
+  const b = $('b-sync');
+  b.disabled = true; b.textContent = 'Refreshing…';
+  try {
+    const r = await peipkg(['refresh']);
+    if (r.code !== 0) throw failure(r);
+    // A repository that could not be reached is skipped with a warning, not a failure.
+    if (r.err.trim()) showBanner(r.err.trim()); else clearBanner();
+  } catch (err) {
+    showBanner(`peipkg refresh failed: ${err.message}`);
+  }
+  b.disabled = false; b.textContent = 'Refresh repositories';
+  checkUpdates();
+  if ($('q-available').value.trim()) search($('q-available').value);
+});
+
+for (const p of document.querySelectorAll('[data-tab]')) {
+  p.addEventListener('click', () => { tab = p.dataset.tab; renderTabs(); });
+}
+for (const th of document.querySelectorAll('th[data-sort]')) {
+  th.addEventListener('click', () => {
+    sort = { key: th.dataset.sort, dir: sort.key === th.dataset.sort && sort.dir === 'asc' ? 'desc' : 'asc' };
+    renderInstalled();
+  });
+}
+$('q-installed').addEventListener('input', (e) => { filter.q = e.target.value; renderInstalled(); });
+$('q-available').addEventListener('input', (e) => search(e.target.value));
+$('p-orphaned').addEventListener('click', () => { filter.orphaned = !filter.orphaned; renderInstalled(); });
+$('d-close').addEventListener('click', () => { selected = null; detail = null; renderInstalled(); renderDetail(); });
+
+atrium.shortcuts.on('R', () => { if (!busy) reload(); });
+atrium.shortcuts.on('/', () => { const q = $(tab === 'available' ? 'q-available' : 'q-installed'); if (!$(`v-${tab}`).hidden && q.offsetParent) q.focus(); });
+
+await atrium.ready();
+reload();
+atrium.request({ kind: 'system-info' })
+  .then((i) => { if (i && i.hostname) $('host').textContent = `${i.hostname} / packages`; })
+  .catch(() => {});
 </script>
 </body>
 </html>

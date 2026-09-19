@@ -1,0 +1,14 @@
+#!/bin/sh
+# Not a fake: the real peipkg, pointed at a scratch root so the Packages app
+# can install and remove for real without touching the host. peipkg's plan
+# and progress text is what the app reads, so a canned imitation would test
+# the imitation.
+#
+#   FAKE_PEIPKG_BIN   a peipkg binary (go build ./cmd/peipkg in the peipkg tree)
+#   FAKE_PEIPKG_ROOT  an empty directory, given a repository once with
+#                     `peipkg --root DIR repo add NAME file:///…/pkgs/_peipkgRepo_ --anchor FPR`
+#                     and `peipkg --root DIR refresh`
+#
+# Off Peios every command also warns on stderr that audit emission failed;
+# that is the host, not the app.
+exec "${FAKE_PEIPKG_BIN:?set FAKE_PEIPKG_BIN}" --root "${FAKE_PEIPKG_ROOT:?set FAKE_PEIPKG_ROOT}" "$@"
