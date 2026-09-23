@@ -65,10 +65,13 @@ if versions != [expected]:
 # crates.io inputs are pinned by Cargo.lock and supplied by build.vendor; no
 # sibling checkout or mutable Cargo cache is visible in this build root.
 unset PEIOS_LIB_DIR PEIOS_INCLUDE PKM_UAPI
-pkg-config --exists peios || {
-  echo "atrium: libpeios-devel (peios.pc) is required" >&2
+# A newer API-compatible libpeios SDK is valid; a different SONAME ABI is not.
+pkg-config --atleast-version=0.5.0 peios || {
+  echo "atrium: dev.peios.libpeios-devel >= 0.5.0 (ABI 0) is required" >&2
   exit 1
 }
+readelf -dW "$(pkg-config --variable=libdir peios)/libpeios.so" |
+  grep -E '\(SONAME\).*\[libpeios\.so\.0\]' >/dev/null
 
 export BINDGEN_EXTRA_CLANG_ARGS="-isystem $(gcc -print-file-name=include) ${BINDGEN_EXTRA_CLANG_ARGS:-}"
 # Keep every build-machine path out of the statically linked Rust crates'
@@ -119,6 +122,22 @@ test -z "$(grep -Ril 'placeholder.*no behaviour' "$APPS" || true)"
 mkdir -p "$PEKIT_OUT/usr/share/regim"
 cp "$SRC/registry.d/atriumd-service.reg" "$PEKIT_OUT/usr/share/regim/atriumd-service.reg"
 test -f "$PEKIT_OUT/usr/share/regim/atriumd-service.reg"
+
+# The one program in a binary directory is the one that needs a manual; the
+# two helpers under libexec are not on anyone's PATH. Compressed here without
+# an extra build tool dependency, and deterministically: no name, no mtime.
+python3 - "$SRC" "$PEKIT_OUT" <<'PY_MAN'
+import gzip, os, pathlib, sys
+source, output = map(pathlib.Path, sys.argv[1:])
+data = (source / "man" / "atriumd.8").read_bytes()
+target = output / "usr/share/man/man8/atriumd.8.gz"
+target.parent.mkdir(parents=True, exist_ok=True)
+with target.open("wb") as raw:
+    with gzip.GzipFile(filename="", mode="wb", fileobj=raw, mtime=0) as stream:
+        stream.write(data)
+os.chmod(target, 0o644)
+PY_MAN
+test -s "$PEKIT_OUT/usr/share/man/man8/atriumd.8.gz"
 
 # Conventional build-ID indexed symbols and the exact sources named by their
 # DWARF. Statically linked vendored crates are part of these executables, so
@@ -178,7 +197,7 @@ test -n "$(find "$DEBUG_ROOT" -type f -print -quit)"
 "org.sourceware.debugedit" = "*"
 "org.python.python3"       = "*"
 "org.llvm.clang"           = ">= 22"
-"dev.peios.libpeios-devel" = "*"
+"dev.peios.libpeios-devel" = ">= 0.5.0"
 "dev.peios.kernel-headers" = "*"
 
 [test]
@@ -192,22 +211,39 @@ export CARGO_HOME="$PEKIT_OUT/cargo-home"
 mkdir -p "$CARGO_HOME"
 cp "$PEKIT_VENDOR_OUT/cargo-config.toml" "$CARGO_HOME/config.toml"
 unset PEIOS_LIB_DIR PEIOS_INCLUDE PKM_UAPI
-pkg-config --exists peios || {
-  echo "atrium: libpeios-devel (peios.pc) is required" >&2
+# A newer API-compatible libpeios SDK is valid; a different SONAME ABI is not.
+pkg-config --atleast-version=0.5.0 peios || {
+  echo "atrium: dev.peios.libpeios-devel >= 0.5.0 (ABI 0) is required" >&2
   exit 1
 }
+readelf -dW "$(pkg-config --variable=libdir peios)/libpeios.so" |
+  grep -E '\(SONAME\).*\[libpeios\.so\.0\]' >/dev/null
 export BINDGEN_EXTRA_CLANG_ARGS="-isystem $(gcc -print-file-name=include) ${BINDGEN_EXTRA_CLANG_ARGS:-}"
+# The tests run with the same control-flow protection as build.main (PEI-1155).
+export RUSTC_BOOTSTRAP=1
+export RUSTFLAGS="${RUSTFLAGS:+$RUSTFLAGS }-Zcf-protection=full"
 # Run the complete unit suite against the exact locked dependency graph. The
 # jobs-client test is normally conditional; give it a disposable PSPU jobs
 # endpoint so it exercises descriptor passing, pidfd completion, and stop.
-FAKE_JOBS="$PEKIT_OUT/fake-peinit.sock"
+# sockaddr_un paths have a fixed small bound, independent of campaign paths.
+# Pin the parent to /tmp rather than a potentially long inherited TMPDIR.
+FAKE_DIR=$(mktemp -d /tmp/atrium-jobs.XXXXXXXXXX)
+FAKE_JOBS="$FAKE_DIR/jobs.sock"
+FAKE_PID=
+cleanup_fake() {
+  if [ -n "$FAKE_PID" ]; then
+    kill "$FAKE_PID" 2>/dev/null || true
+    wait "$FAKE_PID" 2>/dev/null || true
+    FAKE_PID=
+  fi
+  rm -rf "$FAKE_DIR"
+}
+trap cleanup_fake EXIT
+trap 'exit 129' HUP
+trap 'exit 130' INT
+trap 'exit 143' TERM
 python3 "$SRC/tools/dev/fake_peinit.py" "$FAKE_JOBS" >"$PEKIT_OUT/fake-peinit.log" 2>&1 &
 FAKE_PID=$!
-cleanup_fake() {
-  kill "$FAKE_PID" 2>/dev/null || true
-  wait "$FAKE_PID" 2>/dev/null || true
-}
-trap cleanup_fake EXIT HUP INT TERM
 i=0
 while [ ! -S "$FAKE_JOBS" ]; do
   kill -0 "$FAKE_PID" 2>/dev/null || {
@@ -225,12 +261,27 @@ ATRIUM_JOBS_SOCKET="$FAKE_JOBS" \
   cargo test --release --workspace --locked --offline --target-dir "$PEKIT_OUT/target"
 cleanup_fake
 trap - EXIT HUP INT TERM
-rm -f "$FAKE_JOBS" "$PEKIT_OUT/fake-peinit.log"
+rm -f "$PEKIT_OUT/fake-peinit.log"
 
 # Validate the exact staged package output produced by build.main.
 SRC=$(pwd -P)
 PEKIT_OUT="$PEKIT_MAIN_OUT"
 APPS="$PEKIT_OUT/usr/share/atrium/apps"
+
+# The staged manual must be the source text, compressed reproducibly.
+python3 - "$SRC" "$PEKIT_OUT" <<'PY_MAN'
+import gzip, pathlib, sys
+source, output = map(pathlib.Path, sys.argv[1:])
+original = (source / "man" / "atriumd.8").read_bytes()
+staged = output / "usr/share/man/man8/atriumd.8.gz"
+assert gzip.decompress(staged.read_bytes()) == original, "staged manual differs from source"
+assert original.startswith(b'.TH ATRIUMD 8 '), "manual has no section 8 title line"
+# No stored name and no timestamp, so two builds of one source agree byte for byte.
+header = staged.read_bytes()[:8]
+assert not header[3] & 0x08, "manual gzip stores a filename"
+assert header[4:8] == b"\0\0\0\0", "manual gzip stores a timestamp"
+PY_MAN
+
 # Fail closed on the properties expected from the distribution Rust policy.
 for elf in \
   "$PEKIT_OUT/usr/sbin/atriumd" \
@@ -243,8 +294,14 @@ do
   readelf -dW "$elf" | grep -q 'BIND_NOW'
   readelf -dW "$elf" | grep -Eq 'FLAGS_1.*PIE'
   readelf -dW "$elf" | grep -q 'RELR'
-  ! readelf -dW "$elf" | grep -Eq '(RPATH|RUNPATH)'
-  ! readelf -SW "$elf" | grep -q '\.debug_info'
+  if readelf -dW "$elf" | grep -E '(RPATH|RUNPATH)' >/dev/null; then
+    echo "atrium: $elf carries an RPATH or RUNPATH" >&2
+    exit 1
+  fi
+  if readelf -SW "$elf" | grep '\.debug_info' >/dev/null; then
+    echo "atrium: $elf still contains unsplit debug information" >&2
+    exit 1
+  fi
 
   build_id=$(readelf -n "$elf" | sed -n 's/^[[:space:]]*Build ID: //p' | head -1)
   debug="$PEKIT_OUT/usr/lib/debug/.build-id/$(printf %s "$build_id" | cut -c1-2)/$(printf %s "$build_id" | cut -c3-).debug"
@@ -252,7 +309,10 @@ do
   readelf -SW "$debug" | grep -q '\.debug_info'
   test "$(readelf -n "$debug" | sed -n 's/^[[:space:]]*Build ID: //p' | head -1)" = "$build_id"
   for forbidden in "$SRC" "$PEKIT_VENDOR_OUT" "$PEKIT_OUT_BASE" "$PEKIT_WORKSPACE_ROOT"; do
-    ! grep -aF "$forbidden" "$elf" "$debug" >/dev/null
+    if grep -aF "$forbidden" "$elf" "$debug" >/dev/null; then
+      echo "atrium: build path $forbidden leaked into $elf or its debug file" >&2
+      exit 1
+    fi
   done
 done
 
@@ -277,5 +337,5 @@ python3 "$SRC/tools/package-smoke.py" \
 "org.sourceware.debugedit" = "*"
 "org.python.python3"       = "*"
 "org.llvm.clang"           = ">= 22"
-"dev.peios.libpeios-devel" = "*"
+"dev.peios.libpeios-devel" = ">= 0.5.0"
 "dev.peios.kernel-headers" = "*"

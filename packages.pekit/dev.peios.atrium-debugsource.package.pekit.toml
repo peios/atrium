@@ -4,7 +4,7 @@ architecture = "noarch"
 description  = "Atrium runtime debug sources"
 
 [dependencies]
-"dev.peios.atrium-debuginfo" = "{{version}}"
+"dev.peios.atrium-core-debuginfo" = "= {{release}}"
 
 [files]
 "@source:LICENSE"       = "usr/share/licenses/dev.peios.atrium-debugsource/LICENSE"

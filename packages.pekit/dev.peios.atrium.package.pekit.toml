@@ -9,12 +9,12 @@ architecture = "noarch"
 description  = "Peios web user interface and default application set"
 
 [dependencies]
-"dev.peios.atrium-core"         = "{{version}}"
-"dev.peios.atrium-app-about"    = "{{version}}"
-"dev.peios.atrium-app-packages" = "{{version}}"
-"dev.peios.atrium-app-registry" = "{{version}}"
-"dev.peios.atrium-app-services" = "{{version}}"
-"dev.peios.atrium-app-terminal" = "{{version}}"
+"dev.peios.atrium-core"         = "= {{release}}"
+"dev.peios.atrium-app-about"    = "= {{release}}"
+"dev.peios.atrium-app-packages" = "= {{release}}"
+"dev.peios.atrium-app-registry" = "= {{release}}"
+"dev.peios.atrium-app-services" = "= {{release}}"
+"dev.peios.atrium-app-terminal" = "= {{release}}"
 
 # Peipkg deliberately rejects a package with no payload. The product license
 # is a real, harmless ownership anchor for this dependency-only default set.

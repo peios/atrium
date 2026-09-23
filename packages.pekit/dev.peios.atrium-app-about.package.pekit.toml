@@ -4,7 +4,7 @@ architecture = "noarch"
 description  = "Atrium application for machine and session information"
 
 [dependencies]
-"dev.peios.atrium-core" = "{{version}}"
+"dev.peios.atrium-core" = "= {{release}}"
 
 [files]
 "@source:LICENSE"                         = "usr/share/licenses/dev.peios.atrium-app-about/LICENSE"

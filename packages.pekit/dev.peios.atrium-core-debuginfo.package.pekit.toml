@@ -1,0 +1,14 @@
+# Named for the package whose objects it carries, as every other Peios recipe
+# names its debug packages: atrium-core ships all three executables, so their
+# debug data belongs in atrium-core-debuginfo.
+
+[package]
+name        = "dev.peios.atrium-core-debuginfo"
+description = "Atrium runtime debugging symbols"
+
+[dependencies]
+"dev.peios.atrium-core" = "= {{release}}"
+
+[files]
+"@source:LICENSE"       = "usr/share/licenses/dev.peios.atrium-core-debuginfo/LICENSE"
+":usr/lib/debug/**"     = "usr/lib/debug"

@@ -4,7 +4,7 @@ architecture = "noarch"
 description  = "Atrium application for service status and control"
 
 [dependencies]
-"dev.peios.atrium-core" = "{{version}}"
+"dev.peios.atrium-core" = "= {{release}}"
 "dev.peios.peinit"                     = "*"
 
 [files]

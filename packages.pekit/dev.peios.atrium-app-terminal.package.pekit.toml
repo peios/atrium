@@ -4,7 +4,7 @@ architecture = "noarch"
 description  = "Atrium terminal application"
 
 [dependencies]
-"dev.peios.atrium-core" = "{{version}}"
+"dev.peios.atrium-core" = "= {{release}}"
 sh                         = "*"
 
 [files]

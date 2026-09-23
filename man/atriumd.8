@@ -1,0 +1,98 @@
+.TH ATRIUMD 8 "" "Peios" "System Administration"
+.SH NAME
+atriumd \- Peios web session host
+.SH SYNOPSIS
+.B atriumd
+.RB [ \-\-unrestricted ]
+.SH DESCRIPTION
+.B atriumd
+is the single privileged process of Atrium, the browser-delivered interactive
+session. It runs as SYSTEM because originating a logon requires it: the
+authority's logon socket admits SYSTEM alone. Everything else is deliberately
+placed on the far side of that privilege.
+.PP
+The daemon does three things.
+It spawns
+.IR /usr/libexec/atrium/atrium-server ,
+the network-facing half, under a copy of its own token with every privilege
+deleted, joined to it by a single socketpair.
+On the server's behalf it holds PGSS Logon conversations with the authority and
+keeps the resulting tokens in a session table.
+For each successful logon it submits one
+.I /usr/libexec/atrium/atrium-session
+to peinit as that principal (PSPU \(sc7) and hands the server the socket that
+reaches it.
+.PP
+.B atriumd
+never parses HTTP, never impersonates, and never forks as any identity but its
+own. Nothing that listens on a port runs as SYSTEM. It reads no registry
+configuration of its own; its only configuration is the service definition that
+starts it.
+.SH OPTIONS
+.TP
+.B \-\-unrestricted
+Skip the token work, for a development host without KACS. The server and every
+session then run as this process's own identity. This is a development switch,
+not a deployment mode; the daemon logs a warning saying so on every start.
+.SH STARTUP AND SUPERVISION
+The installed service definition runs
+.B atriumd
+at the boot trigger as SYSTEM, requires lpsd, and uses Notify readiness: the
+daemon sends
+.B READY=1
+to the socket named by
+.B NOTIFY_SOCKET
+once atrium-server has been spawned. Because the listener belongs to the
+server, a bind failure appears as the server exiting and
+.B atriumd
+exiting after it. Its restart policy is Always, which is the recovery path for
+everything: sessions do not survive an
+.B atriumd
+restart, by current decision.
+.PP
+A logout stops that session's peinit job. peinit closes an idle jobs connection
+after 30 seconds (PSPU \(sc7.A), so a connection is opened per operation rather
+than held.
+.SH ENVIRONMENT
+.TP
+.B NOTIFY_SOCKET
+Readiness datagram socket. When unset, no readiness notification is sent.
+.TP
+.B ATRIUM_JOBS_SOCKET
+Overrides the peinit jobs socket, which is
+.I /run/services/peinit/jobs.sock
+by default. Intended for testing against a disposable jobs endpoint.
+.SH FILES
+.TP
+.I /usr/sbin/atriumd
+This daemon.
+.TP
+.I /usr/libexec/atrium/atrium-server
+The network-facing half, spawned unprivileged. It owns the listening socket,
+which is 0.0.0.0:8080 unless
+.B ATRIUM_LISTEN
+overrides it.
+.TP
+.I /usr/libexec/atrium/atrium-session
+The per-principal session host, one submitted to peinit per logon.
+.TP
+.I /usr/share/regim/atriumd-service.reg
+Service definition seed. It is inert until an image names it in its registry
+autoapply configuration.
+.SH DIAGNOSTICS
+Messages are written to standard error, which peinit forwards to the log
+collector, and are mirrored to
+.I /dev/kmsg
+so that
+.BR dmesg (1)
+and the serial console find them on an image without a collector. A machine
+where kmsg cannot be opened still runs.
+.PP
+Failure to start atrium-server, loss of the control socket, or the server
+exiting are all fatal and exit with status 1.
+.SH SEE ALSO
+.BR peinit (8)
+.PP
+Running this executable on a development host does not constitute a service
+test; it requires a configured Peios system with the authority, lpsd and peinit
+present.

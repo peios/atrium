@@ -4,7 +4,7 @@ architecture = "noarch"
 description  = "Atrium application for installed software and repositories"
 
 [dependencies]
-"dev.peios.atrium-core" = "{{version}}"
+"dev.peios.atrium-core" = "= {{release}}"
 "dev.peios.peipkg"                    = "*"
 
 [files]
