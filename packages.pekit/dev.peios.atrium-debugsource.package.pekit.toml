@@ -2,10 +2,13 @@
 name         = "dev.peios.atrium-debugsource"
 architecture = "noarch"
 description  = "Atrium runtime debug sources"
+# The same crate closure as atrium-core; checked by build.main.
+license      = "((MIT OR Apache-2.0) AND Unicode-3.0) AND Apache-2.0 AND (Apache-2.0 OR MIT) AND BSD-3-Clause AND ISC AND MIT AND (MIT OR Unlicense)"
 
 [dependencies]
 "dev.peios.atrium-core-debuginfo" = "= {{release}}"
 
 [files]
 "@source:LICENSE"       = "usr/share/licenses/dev.peios.atrium-debugsource/LICENSE"
+":licenses/**"          = "usr/share/licenses/dev.peios.atrium-debugsource/third-party"
 ":usr/src/debug/**"     = "usr/src/debug"

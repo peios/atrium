@@ -6,6 +6,9 @@
 [package]
 name        = "dev.peios.atrium-core"
 description = "Peios web session host runtime"
+# The crate closure the three executables link; build.main's
+# collect-rust-licences --check holds this to what those crates declare.
+license     = "((MIT OR Apache-2.0) AND Unicode-3.0) AND Apache-2.0 AND (Apache-2.0 OR MIT) AND BSD-3-Clause AND ISC AND MIT AND (MIT OR Unlicense)"
 
 [dependencies]
 # atriumd is a PGSS Logon client and submits each interactive session as a
@@ -17,6 +20,7 @@ description = "Peios web session host runtime"
 
 [files]
 "@source:LICENSE"                              = "usr/share/licenses/dev.peios.atrium-core/LICENSE"
+":licenses/**"                                 = "usr/share/licenses/dev.peios.atrium-core/third-party"
 ":usr/sbin/atriumd"                            = "usr/sbin/atriumd"
 ":usr/libexec/atrium/atrium-server"            = "usr/libexec/atrium/atrium-server"
 ":usr/libexec/atrium/atrium-session"           = "usr/libexec/atrium/atrium-session"
