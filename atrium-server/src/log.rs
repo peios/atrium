@@ -1,7 +1,7 @@
-//! Lines on stderr, mirrored to the kernel log. Same shape as atriumd's.
+//! Informational lines on stdout, warnings/errors on stderr, mirrored to kmsg. Same shape as atriumd's.
 //!
 //! The server runs privilege-stripped; opening `/dev/kmsg` for write may be
-//! refused, in which case only stderr (captured by peinit) carries the line.
+//! refused, in which case stdout/stderr (captured by peinit) carry the lines.
 
 use std::fmt::Arguments;
 use std::io::Write;
@@ -14,7 +14,11 @@ fn kmsg() -> Option<&'static std::fs::File> {
 
 fn emit(level: &str, args: Arguments<'_>) {
     let line = format!("atrium-server: {level}: {args}\n");
-    let _ = std::io::stderr().write_all(line.as_bytes());
+    if level == "info" {
+        let _ = std::io::stdout().write_all(line.as_bytes());
+    } else {
+        let _ = std::io::stderr().write_all(line.as_bytes());
+    }
     if let Some(mut k) = kmsg() {
         let priority = match level {
             "error" => 3,

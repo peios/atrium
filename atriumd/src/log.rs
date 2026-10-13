@@ -1,6 +1,6 @@
-//! Lines on stderr, mirrored to the kernel log.
+//! Informational lines on stdout, warnings/errors on stderr, mirrored to kmsg.
 //!
-//! peinit captures stderr and forwards it to the log collector; on an image
+//! peinit captures both streams and forwards them to the log collector; on an image
 //! without one those lines vanish, so every line also goes to `/dev/kmsg`,
 //! where `dmesg` and the serial console find it. Best-effort: a machine where
 //! kmsg cannot be opened still runs. Same shape as netd's and resolvd's.
@@ -16,7 +16,11 @@ fn kmsg() -> Option<&'static std::fs::File> {
 
 fn emit(level: &str, args: Arguments<'_>) {
     let line = format!("atriumd: {level}: {args}\n");
-    let _ = std::io::stderr().write_all(line.as_bytes());
+    if level == "info" {
+        let _ = std::io::stdout().write_all(line.as_bytes());
+    } else {
+        let _ = std::io::stderr().write_all(line.as_bytes());
+    }
     if let Some(mut k) = kmsg() {
         // One write per record: kmsg turns every write(2) into a line.
         let priority = match level {
