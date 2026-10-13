@@ -80,8 +80,9 @@ The per-principal session host, one submitted to peinit per logon.
 Service definition seed. It is inert until an image names it in its registry
 autoapply configuration.
 .SH DIAGNOSTICS
-Messages are written to standard error, which peinit forwards to the log
-collector, and are mirrored to
+Informational messages are written to standard output and warnings and
+errors to standard error; peinit forwards both to the log collector, which
+marks only standard error as an error. Every message is also mirrored to
 .I /dev/kmsg
 so that
 .BR dmesg (1)
